@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>External Sort – CS 527</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .sort-layout { display: grid; grid-template-columns: 1fr 200px 1fr; gap: 1.5rem; align-items: start; }
+    .sort-pages { display: flex; flex-direction: column; gap: 6px; }
+    .page-row { display: flex; gap: 4px; align-items: center; }
+    .page-label { font-size: 0.75rem; color: var(--text-dim); min-width: 60px; font-family: var(--mono); }
+    .page-block {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.4rem 0.6rem;
+      font-family: var(--mono); font-size: 0.82rem;
+      display: flex; gap: 6px; align-items: center;
+      transition: all 0.3s;
+    }
+    .page-block.active { border-color: var(--highlight); background: #2a2200; }
+    .page-block.sorted { border-color: var(--success); background: #0d2a1a; }
+    .page-block.merging { border-color: var(--accent); background: #1a1440; }
+    .page-block.done { border-color: var(--accent3); background: #0d2a1a; }
+    .num-chip {
+      padding: 0.1rem 0.4rem; border-radius: 4px;
+      background: var(--surface); border: 1px solid var(--border);
+      font-size: 0.8rem;
+    }
+    .num-chip.hl { background: rgba(255,209,102,0.2); border-color: var(--highlight); color: var(--highlight); }
+    .run-row { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+    .run-group { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.6rem; display: flex; gap: 4px; align-items: center; }
+    .run-group.active { border-color: var(--accent); }
+    .buffer-area { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+    .buffer-slot {
+      width: 52px; height: 52px;
+      background: var(--surface2); border: 2px solid var(--border);
+      border-radius: 8px; display: flex; align-items: center; justify-content: center;
+      font-family: var(--mono); font-size: 0.9rem; font-weight: 700;
+      transition: all 0.3s;
+    }
+    .buffer-slot.in { border-color: var(--accent); background: #1a1440; color: var(--accent); }
+    .buffer-slot.out { border-color: var(--accent3); background: #0d2a1a; color: var(--accent3); }
+    .buffer-slot.comparing { border-color: var(--highlight); background: #2a2200; color: var(--highlight); }
+  </style>
+</head>
+<body>
+  <nav>
+    <a class="nav-brand" href="index.html">CS 527</a>
+    <div class="nav-links">
+      <a class="nav-link" href="index.html">Home</a>
+      <a class="nav-link" href="btree.html">B+ Tree</a>
+      <a class="nav-link" href="bloom.html">Bloom Filter</a>
+      <a class="nav-link" href="hashtable.html">Hash Tables</a>
+      <a class="nav-link" href="bufferpool.html">Buffer Pool</a>
+      <a class="nav-link" href="joins.html">Join Algorithms</a>
+      <a class="nav-link active" href="sorting.html">External Sort</a>
+      <a class="nav-link" href="locking.html">2PL &amp; Locking</a>
+    </div>
+  </nav>
+
+  <div class="page">
+    <div class="page-header">
+      <div class="page-title">External Merge Sort</div>
+      <div class="page-desc">When data doesn't fit in memory, use a two-phase external merge sort. Phase 1 creates sorted runs; Phase 2 merges them using B buffer pages.</div>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <div class="viz-area">
+          <div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+            <div class="stats">
+              <div class="stat"><div class="stat-val" id="es-phase">—</div><div class="stat-lbl">Phase</div></div>
+              <div class="stat"><div class="stat-val" id="es-runs">0</div><div class="stat-lbl">Runs</div></div>
+              <div class="stat"><div class="stat-val" id="es-ios">0</div><div class="stat-lbl">I/O Ops</div></div>
+            </div>
+          </div>
+
+          <!-- Input pages -->
+          <div style="padding:1rem 1.5rem;border-bottom:1px solid var(--border)">
+            <div class="card-title">Disk Pages (Input)</div>
+            <div id="input-pages" class="sort-pages"></div>
+          </div>
+
+          <!-- Buffer pool -->
+          <div style="padding:1rem 1.5rem;border-bottom:1px solid var(--border)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+              <div class="card-title" style="margin:0">Buffer Pool (B pages)</div>
+              <div style="font-size:0.75rem;color:var(--text-dim)" id="buffer-label">B-1 input + 1 output</div>
+            </div>
+            <div class="buffer-area" id="buffer-slots"></div>
+          </div>
+
+          <!-- Runs / Output -->
+          <div style="padding:1rem 1.5rem">
+            <div class="card-title" id="runs-label">Sorted Runs (Phase 1 output)</div>
+            <div id="runs-area" class="sort-pages"></div>
+          </div>
+
+          <div style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+            <div class="explanation" id="es-explanation">Configure and run the sort. Phase 1 creates initial sorted runs. Phase 2 merges them.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="card">
+          <div class="card-title">Configuration</div>
+          <div class="input-row">
+            <label>Pages (N)</label>
+            <select id="es-n">
+              <option value="8" selected>8</option>
+              <option value="12">12</option>
+              <option value="16">16</option>
+            </select>
+          </div>
+          <div class="input-row" style="margin-top:0.5rem">
+            <label>Buffer (B)</label>
+            <select id="es-b">
+              <option value="3" selected>3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+            </select>
+          </div>
+          <button class="btn btn-ghost" style="width:100%;margin-top:0.75rem" id="es-reset">Reset</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Run Sort</div>
+          <div class="btn-group">
+            <button class="btn btn-primary" id="es-phase1">▶ Phase 1</button>
+            <button class="btn btn-success" id="es-phase2" disabled>▶ Phase 2</button>
+          </div>
+          <div class="input-row" style="margin-top:0.5rem">
+            <label>Speed</label>
+            <select id="es-speed">
+              <option value="600">Slow</option>
+              <option value="300" selected>Normal</option>
+              <option value="100">Fast</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Cost Formula</div>
+          <div style="font-family:var(--mono);font-size:0.82rem;color:var(--text-dim);line-height:2">
+            <div>N pages, B buffer frames</div>
+            <div style="border-top:1px solid var(--border);margin:0.4rem 0;padding-top:0.4rem">
+              <b style="color:var(--accent)">Phase 1:</b><br>
+              ⌈N/B⌉ sorted runs<br>
+              Cost: 2N I/Os<br><br>
+              <b style="color:var(--accent3)">Phase 2:</b><br>
+              Merge ⌈N/B⌉ runs at once<br>
+              (if ⌈N/B⌉ ≤ B-1)<br>
+              Cost: 2N I/Os<br><br>
+              <b style="color:var(--accent4)">Total: 4N I/Os</b><br>
+              (two-pass sort)
+            </div>
+            <div id="es-cost-actual" style="border-top:1px solid var(--border);padding-top:0.4rem"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Algorithm</div>
+          <div style="font-family:var(--mono);font-size:0.79rem;color:var(--text-dim);line-height:1.9">
+            <b style="color:var(--accent)">Pass 0 (create runs):</b><br>
+            while pages remain:<br>
+            &nbsp;&nbsp;read B pages into buffer<br>
+            &nbsp;&nbsp;sort in-memory<br>
+            &nbsp;&nbsp;write sorted run to disk<br><br>
+            <b style="color:var(--accent3)">Pass 1 (merge):</b><br>
+            load 1 page from each run<br>
+            into B-1 input buffers<br>
+            repeatedly: output min,<br>
+            fetch next from that run
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  let N = 8, B = 3, pages = [], runs = [], ios = 0, busy = false;
+  let phase1Done = false;
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  function getDelay() { return parseInt(document.getElementById('es-speed').value); }
+
+  function setExpl(msg, type) {
+    const el = document.getElementById('es-explanation');
+    el.textContent = msg;
+    el.className = 'explanation' + (type ? ' ' + type : '');
+  }
+
+  function updateStats(phase) {
+    document.getElementById('es-phase').textContent = phase || '—';
+    document.getElementById('es-runs').textContent = runs.length;
+    document.getElementById('es-ios').textContent = ios;
+  }
+
+  function initSort() {
+    N = parseInt(document.getElementById('es-n').value);
+    B = parseInt(document.getElementById('es-b').value);
+    // Generate random numbers across N pages (2 per page)
+    pages = Array.from({length: N}, (_, i) => {
+      return Array.from({length: 2}, () => Math.floor(Math.random() * 99) + 1);
+    });
+    runs = [];
+    ios = 0;
+    phase1Done = false;
+    document.getElementById('es-phase2').disabled = true;
+    renderInput(pages, new Set());
+    renderBuffer([], B);
+    document.getElementById('runs-area').innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem">Phase 1 will generate sorted runs here</div>';
+    document.getElementById('runs-label').textContent = 'Sorted Runs (Phase 1 output)';
+    updateStats('—');
+    setExpl(`${N} pages, ${B} buffer frames. ⌈${N}/${B}⌉ = ${Math.ceil(N/B)} sorted runs expected.`, '');
+    const costEl = document.getElementById('es-cost-actual');
+    costEl.innerHTML = `N=${N}, B=${B}<br>Runs: ⌈${N}/${B}⌉ = ${Math.ceil(N/B)}<br>Total I/O: 4×${N} = ${4*N}`;
+  }
+
+  function renderInput(pgs, active) {
+    let html = '';
+    pgs.forEach((page, i) => {
+      const cls = active.has(i) ? 'active' : '';
+      html += `<div class="page-row">
+        <div class="page-label">Page ${i}</div>
+        <div class="page-block ${cls}">
+          ${page.map(v => `<span class="num-chip ${active.has(i) ? 'hl' : ''}">${v}</span>`).join('')}
+        </div>
+      </div>`;
+    });
+    document.getElementById('input-pages').innerHTML = html;
+  }
+
+  function renderBuffer(slots, bufSize) {
+    let html = '';
+    const isOut = (i) => i === bufSize - 1;
+    for (let i = 0; i < bufSize; i++) {
+      const val = slots[i];
+      const cls = val !== undefined ? (isOut(i) ? 'out' : 'in') : '';
+      const label = isOut(i) ? '<div style="font-size:0.65rem;color:var(--text-dim)">OUT</div>' : `<div style="font-size:0.65rem;color:var(--text-dim)">IN ${i}</div>`;
+      html += `<div style="text-align:center">
+        ${label}
+        <div class="buffer-slot ${cls}">${val !== undefined ? val : ''}</div>
+      </div>`;
+    }
+    document.getElementById('buffer-slots').innerHTML = html;
+  }
+
+  function renderRuns(runs, activeRun = -1) {
+    let html = '';
+    runs.forEach((run, i) => {
+      const cls = i === activeRun ? 'done' : 'sorted';
+      html += `<div class="page-row">
+        <div class="page-label">Run ${i}</div>
+        <div class="page-block ${cls}">
+          ${run.map(v => `<span class="num-chip">${v}</span>`).join('')}
+        </div>
+      </div>`;
+    });
+    document.getElementById('runs-area').innerHTML = html || '<div style="color:var(--text-dim);font-size:0.8rem">No runs yet</div>';
+  }
+
+  async function phase1() {
+    if (busy) return;
+    busy = true;
+    document.getElementById('es-phase1').disabled = true;
+    ios = 0; runs = [];
+    const delay = getDelay();
+
+    let pi = 0;
+    while (pi < N) {
+      const chunk = [];
+      const chunkIdxs = new Set();
+      // Read B pages into buffer
+      for (let j = 0; j < B && pi < N; j++, pi++) {
+        chunk.push(...pages[pi]);
+        chunkIdxs.add(pi - (j === 0 ? 0 : j));
+      }
+      const readPages = [...chunkIdxs].map(idx => pi - B + [...chunkIdxs].indexOf(idx));
+      const activeSet = new Set(Array.from({length: Math.min(B, N - (pi-B))}, (_, k) => pi - Math.min(B, N-(pi-B)) + k));
+      renderInput(pages, activeSet);
+      setExpl(`Reading pages ${[...activeSet].join(', ')} into buffer...`, '');
+      ios += activeSet.size;
+      renderBuffer(chunk.slice(0, B), B);
+      await sleep(delay);
+
+      // Sort in buffer
+      const sorted = [...chunk].sort((a,b) => a-b);
+      setExpl(`Sorting ${chunk.length} values in buffer: [${sorted.join(', ')}]`, '');
+      renderBuffer(sorted.slice(0, B), B);
+      await sleep(delay);
+
+      // Write run to disk
+      runs.push(sorted);
+      ios += sorted.length > 0 ? 1 : 0;
+      renderRuns(runs);
+      setExpl(`Writing sorted run ${runs.length-1} to disk: [${sorted.join(', ')}]`, 'success');
+      updateStats('Pass 0');
+      await sleep(delay);
+    }
+
+    renderInput(pages, new Set());
+    renderBuffer([], B);
+    setExpl(`Phase 1 done! Created ${runs.length} sorted runs. Total I/Os: ${ios}. Now run Phase 2 to merge.`, 'success');
+    phase1Done = true;
+    document.getElementById('es-phase2').disabled = false;
+    busy = false;
+  }
+
+  async function phase2() {
+    if (busy || !phase1Done) return;
+    busy = true;
+    document.getElementById('es-phase2').disabled = true;
+    const delay = getDelay();
+    document.getElementById('runs-label').textContent = 'Sorted Runs (Phase 2 merging)';
+
+    // Merge all runs using B-1 input buffers + 1 output buffer
+    const numRuns = runs.length;
+    if (numRuns > B - 1) {
+      setExpl(`Too many runs (${numRuns}) for single-pass merge (need ≤ ${B-1}). In practice, do another pass.`, 'warning');
+      busy = false;
+      return;
+    }
+
+    // Pointers into each run
+    const ptrs = new Array(numRuns).fill(0);
+    const result = [];
+    const inputBufs = runs.map((r, i) => r[0]); // current element from each run
+    setExpl(`Phase 2: Merging ${numRuns} runs using ${B-1} input buffers + 1 output buffer.`, '');
+    await sleep(delay);
+
+    let step = 0;
+    while (true) {
+      // Find minimum across active runs
+      let minVal = Infinity, minRun = -1;
+      for (let i = 0; i < numRuns; i++) {
+        if (ptrs[i] < runs[i].length && runs[i][ptrs[i]] < minVal) {
+          minVal = runs[i][ptrs[i]];
+          minRun = i;
+        }
+      }
+      if (minRun === -1) break;
+
+      // Show which run we're pulling from
+      renderRuns(runs, minRun);
+      const bufDisplay = runs.map((r, i) => ptrs[i] < r.length ? r[ptrs[i]] : undefined);
+      renderBuffer([...bufDisplay, result[result.length-1]], B);
+      setExpl(`Min value = ${minVal} from Run ${minRun}. Output to result buffer.`, '');
+      ios++;
+      await sleep(delay);
+
+      result.push(minVal);
+      ptrs[minRun]++;
+
+      // If run exhausted, fetch next page (simulated)
+      if (ptrs[minRun] < runs[minRun].length) {
+        ios++;
+      }
+    }
+
+    ios++;
+    renderBuffer([], B);
+    // Show final result
+    document.getElementById('runs-label').textContent = 'Final Sorted Output';
+    document.getElementById('runs-area').innerHTML = `<div class="page-row">
+      <div class="page-label">Sorted</div>
+      <div class="page-block done">${result.map(v => `<span class="num-chip">${v}</span>`).join('')}</div>
+    </div>`;
+    updateStats('Pass 1');
+    setExpl(`Sort complete! Output: [${result.join(', ')}]. Total I/Os: ${ios} ≈ 4N = ${4*N}.`, 'success');
+    busy = false;
+  }
+
+  document.getElementById('es-reset').addEventListener('click', () => { busy = false; document.getElementById('es-phase1').disabled = false; initSort(); });
+  document.getElementById('es-phase1').addEventListener('click', phase1);
+  document.getElementById('es-phase2').addEventListener('click', phase2);
+  document.getElementById('es-n').addEventListener('change', initSort);
+  document.getElementById('es-b').addEventListener('change', initSort);
+
+  initSort();
+  </script>
+</body>
+</html>

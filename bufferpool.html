@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Buffer Pool – CS 527</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .frame-grid { display: grid; gap: 8px; padding: 1.5rem; }
+    .frame {
+      display: grid; grid-template-columns: 50px 1fr auto auto;
+      align-items: center; gap: 8px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.6rem 1rem;
+      transition: all 0.3s;
+    }
+    .frame.active { border-color: var(--highlight); background: #2a2200; }
+    .frame.evicting { border-color: var(--danger); background: #2a0a0a; }
+    .frame.loading { border-color: var(--accent3); background: #0d2a1a; }
+    .frame.pinned { border-color: var(--accent); background: #1a1440; }
+    .frame-id { font-family: var(--mono); font-size: 0.8rem; color: var(--text-dim); }
+    .frame-page { font-family: var(--mono); font-size: 1rem; font-weight: 700; }
+    .frame-meta { font-size: 0.75rem; color: var(--text-dim); display: flex; flex-direction: column; gap: 2px; text-align: right; }
+    .frame-badge {
+      padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700;
+      white-space: nowrap;
+    }
+    .badge-pin { background: rgba(108,99,255,0.2); color: var(--accent); border: 1px solid var(--accent); }
+    .badge-dirty { background: rgba(255,101,132,0.2); color: var(--danger); border: 1px solid var(--danger); }
+    .badge-clean { background: rgba(67,217,173,0.15); color: var(--success); border: 1px solid var(--success); }
+    .badge-ref { background: rgba(255,209,102,0.2); color: var(--accent4); border: 1px solid var(--accent4); }
+    .badge-empty { background: var(--surface); color: var(--text-dim); border: 1px solid var(--border); }
+
+    .lru-list { display: flex; align-items: center; gap: 6px; padding: 0.75rem 1.5rem; flex-wrap: wrap; border-top: 1px solid var(--border); }
+    .lru-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.6rem; font-family: var(--mono); font-size: 0.85rem; }
+    .lru-item.mru { border-color: var(--accent3); color: var(--accent3); }
+    .lru-item.lru-end { border-color: var(--danger); color: var(--danger); }
+    .lru-arrow { color: var(--text-dim); font-size: 0.8rem; }
+
+    .clock-hand { color: var(--accent4); font-size: 1.2rem; }
+
+    .io-log { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+    .io-entry { font-family: var(--mono); font-size: 0.8rem; padding: 0.3rem 0.6rem; border-radius: 5px; border-left: 3px solid var(--border); }
+    .io-hit { border-left-color: var(--success); color: var(--success); background: rgba(67,217,173,0.08); }
+    .io-miss { border-left-color: var(--accent4); color: var(--accent4); background: rgba(255,209,102,0.08); }
+    .io-evict { border-left-color: var(--danger); color: var(--danger); background: rgba(255,101,132,0.08); }
+
+    .workload-btn { padding: 0.35rem 0.75rem; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a class="nav-brand" href="index.html">CS 527</a>
+    <div class="nav-links">
+      <a class="nav-link" href="index.html">Home</a>
+      <a class="nav-link" href="btree.html">B+ Tree</a>
+      <a class="nav-link" href="bloom.html">Bloom Filter</a>
+      <a class="nav-link" href="hashtable.html">Hash Tables</a>
+      <a class="nav-link active" href="bufferpool.html">Buffer Pool</a>
+      <a class="nav-link" href="joins.html">Join Algorithms</a>
+      <a class="nav-link" href="sorting.html">External Sort</a>
+      <a class="nav-link" href="locking.html">2PL &amp; Locking</a>
+    </div>
+  </nav>
+
+  <div class="page">
+    <div class="page-header">
+      <div class="page-title">Buffer Pool Manager</div>
+      <div class="page-desc">The buffer pool caches disk pages in memory frames. When all frames are full and a new page is needed, a replacement policy chooses which frame to evict.</div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchPolicy('lru')">LRU</div>
+      <div class="tab" onclick="switchPolicy('clock')">Clock</div>
+      <div class="tab" onclick="switchPolicy('lruk')">LRU-K</div>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <div class="viz-area">
+          <div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+            <div class="legend">
+              <div class="legend-item"><div class="legend-dot" style="background:#2a2200;border:2px solid var(--highlight)"></div> Active</div>
+              <div class="legend-item"><div class="legend-dot" style="background:#2a0a0a;border:2px solid var(--danger)"></div> Evicting</div>
+              <div class="legend-item"><div class="legend-dot" style="background:#0d2a1a;border:2px solid var(--success)"></div> Loading</div>
+              <div class="legend-item"><div class="legend-dot" style="background:#1a1440;border:2px solid var(--accent)"></div> Pinned</div>
+            </div>
+            <div class="stats">
+              <div class="stat"><div class="stat-val" id="stat-hits">0</div><div class="stat-lbl">Hits</div></div>
+              <div class="stat"><div class="stat-val" id="stat-misses">0</div><div class="stat-lbl">Misses</div></div>
+              <div class="stat"><div class="stat-val" id="stat-evictions">0</div><div class="stat-lbl">Evictions</div></div>
+              <div class="stat"><div class="stat-val" id="stat-ratio">—</div><div class="stat-lbl">Hit Rate</div></div>
+            </div>
+          </div>
+
+          <div class="frame-grid" id="frame-grid"></div>
+
+          <!-- Policy-specific visualization -->
+          <div id="policy-viz" style="border-top:1px solid var(--border)">
+            <div class="lru-list" id="lru-viz">
+              <span style="font-size:0.75rem;color:var(--text-dim)">LRU order (MRU → LRU):</span>
+            </div>
+          </div>
+
+          <div style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+            <div class="explanation" id="bp-explanation">Request a page number to see the buffer pool in action.</div>
+          </div>
+        </div>
+
+        <!-- I/O Log -->
+        <div class="card" style="margin-top:1rem">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+            <div class="card-title" style="margin:0">I/O Log</div>
+            <button class="btn btn-ghost btn-sm" onclick="clearLog()">Clear</button>
+          </div>
+          <div class="io-log" id="io-log">
+            <div style="color:var(--text-dim);font-size:0.8rem;text-align:center;padding:0.5rem">No requests yet</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <div class="card">
+          <div class="card-title">Configuration</div>
+          <div class="input-row">
+            <label>Frames</label>
+            <select id="num-frames">
+              <option value="3">3</option>
+              <option value="4" selected>4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+            </select>
+          </div>
+          <div class="input-row" style="margin-top:0.5rem" id="lruk-config" style="display:none">
+            <label>K value</label>
+            <select id="k-val">
+              <option value="2" selected>K = 2</option>
+              <option value="3">K = 3</option>
+            </select>
+          </div>
+          <button class="btn btn-ghost" style="width:100%;margin-top:0.75rem" id="btn-reset-bp">Reset</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Request Page</div>
+          <div class="input-row">
+            <input type="number" id="page-req" placeholder="page #" min="1" max="20">
+            <button class="btn btn-primary" id="btn-request">Request</button>
+          </div>
+          <div class="input-row" style="margin-top:0.5rem">
+            <label>Dirty?</label>
+            <input type="checkbox" id="chk-dirty" style="width:auto;flex:none">
+            <label style="min-width:auto;font-size:0.82rem;color:var(--text-dim)">Mark frame dirty after access</label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Workloads</div>
+          <div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:0.5rem">Try these access patterns:</div>
+          <div class="btn-group">
+            <button class="btn btn-ghost workload-btn" onclick="runWorkload('sequential')">Sequential</button>
+            <button class="btn btn-ghost workload-btn" onclick="runWorkload('random')">Random</button>
+            <button class="btn btn-ghost workload-btn" onclick="runWorkload('hot')">Hot Set</button>
+            <button class="btn btn-ghost workload-btn" onclick="runWorkload('scan')">Full Scan</button>
+          </div>
+          <div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.5rem" id="workload-desc"></div>
+        </div>
+
+        <div class="card" id="policy-info">
+          <div class="card-title">Policy: LRU</div>
+          <div id="policy-desc" style="font-size:0.82rem;color:var(--text-dim);line-height:1.9">
+            <b style="color:var(--accent)">Least Recently Used</b><br>
+            Evicts the frame that was accessed the longest time ago.<br><br>
+            <b>Pros:</b> Simple, good temporal locality<br>
+            <b>Cons:</b> Susceptible to sequential flooding (large scans evict hot pages)<br><br>
+            <span style="font-family:var(--mono)">Cost: O(1) with doubly linked list + hash map</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  let policy = 'lru';
+  let numFrames = 4, kVal = 2;
+  let frames = []; // {pageId, dirty, pinCount, ref, history[]}
+  let hits = 0, misses = 0, evictions = 0;
+  let clockHand = 0;
+  let lruOrder = []; // frame indices in MRU order (front=MRU, back=LRU)
+  let logEntries = [];
+  let busy = false;
+
+  function switchPolicy(p) {
+    policy = p;
+    document.querySelectorAll('.tab').forEach((t,i) => {
+      t.classList.toggle('active', ['lru','clock','lruk'][i] === p);
+    });
+    resetBP();
+    updatePolicyInfo();
+  }
+
+  function updatePolicyInfo() {
+    const infos = {
+      lru: { title: 'LRU', html: `<b style="color:var(--accent)">Least Recently Used</b><br>Evicts the frame accessed longest ago. Tracks recency with a linked list.<br><br><b>Pros:</b> Good temporal locality<br><b>Cons:</b> Sequential scans cause "cache pollution" (evicts hot pages)` },
+      clock: { title: 'Clock', html: `<b style="color:var(--accent4)">Clock (Second Chance)</b><br>Approximates LRU without exact timestamps. A clock hand sweeps frames. If ref bit=1, clear it and advance. If ref bit=0, evict.<br><br><b>Pros:</b> O(1) overhead, no timestamps<br><b>Cons:</b> Less precise than LRU` },
+      lruk: { title: 'LRU-K', html: `<b style="color:var(--accent3)">LRU-K</b><br>Tracks K most recent access times per frame. Evicts frame with oldest K-th access. Pages accessed < K times get lowest priority.<br><br><b>Pros:</b> Resistant to sequential flooding<br><b>Cons:</b> More bookkeeping; K=2 is MySQL's approx implementation` }
+    };
+    const info = infos[policy];
+    document.querySelector('#policy-info .card-title').textContent = 'Policy: ' + info.title;
+    document.getElementById('policy-desc').innerHTML = info.html;
+    document.getElementById('lruk-config').style.display = policy === 'lruk' ? '' : 'none';
+  }
+
+  function resetBP() {
+    numFrames = parseInt(document.getElementById('num-frames').value);
+    kVal = parseInt(document.getElementById('k-val').value);
+    frames = Array.from({length: numFrames}, (_, i) => ({ frameId: i, pageId: null, dirty: false, pinCount: 0, ref: false, history: [] }));
+    hits = 0; misses = 0; evictions = 0; clockHand = 0;
+    lruOrder = [];
+    logEntries = [];
+    renderFrames([]);
+    renderPolicyViz();
+    renderLog();
+    updateStats();
+    setExpl('Request a page to see the buffer pool manager in action.', '');
+  }
+
+  function setExpl(msg, type) {
+    const el = document.getElementById('bp-explanation');
+    el.textContent = msg;
+    el.className = 'explanation' + (type ? ' ' + type : '');
+  }
+
+  function updateStats() {
+    document.getElementById('stat-hits').textContent = hits;
+    document.getElementById('stat-misses').textContent = misses;
+    document.getElementById('stat-evictions').textContent = evictions;
+    const total = hits + misses;
+    document.getElementById('stat-ratio').textContent = total ? Math.round(hits/total*100) + '%' : '—';
+  }
+
+  function renderFrames(highlight) {
+    const hlMap = {};
+    highlight.forEach(h => { hlMap[h.frameId] = h.cls; });
+
+    let html = '';
+    frames.forEach(f => {
+      const cls = hlMap[f.frameId] || '';
+      const badge = f.pageId === null ? '<span class="frame-badge badge-empty">empty</span>' :
+        (f.dirty ? '<span class="frame-badge badge-dirty">dirty</span>' : '<span class="frame-badge badge-clean">clean</span>');
+      const refBadge = f.ref ? '<span class="frame-badge badge-ref">ref=1</span>' : '';
+      const pinBadge = f.pinCount > 0 ? `<span class="frame-badge badge-pin">pinned(${f.pinCount})</span>` : '';
+
+      const histStr = policy === 'lruk' && f.history.length > 0
+        ? `<span>hist: [${f.history.slice(-kVal).join(', ')}]</span>` : '';
+
+      html += `<div class="frame ${cls}">
+        <div class="frame-id">Frame ${f.frameId}</div>
+        <div class="frame-page">${f.pageId !== null ? 'Page ' + f.pageId : '—'}</div>
+        <div class="frame-meta">${histStr}</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">${badge}${refBadge}${pinBadge}</div>
+      </div>`;
+    });
+    document.getElementById('frame-grid').innerHTML = html;
+  }
+
+  let timeCounter = 0;
+
+  function renderPolicyViz() {
+    const viz = document.getElementById('policy-viz');
+    if (policy === 'lru') {
+      const order = lruOrder.map(fi => frames[fi]);
+      let html = '<div class="lru-list"><span style="font-size:0.75rem;color:var(--text-dim)">MRU→LRU: </span>';
+      if (order.length === 0) { html += '<span style="color:var(--text-dim);font-size:0.8rem">empty</span>'; }
+      order.forEach((f, i) => {
+        html += `<span class="lru-item ${i===0?'mru':''} ${i===order.length-1?'lru-end':''}">${f.pageId !== null ? 'P'+f.pageId : '—'}</span>`;
+        if (i < order.length - 1) html += '<span class="lru-arrow">→</span>';
+      });
+      html += '</div>';
+      viz.innerHTML = html;
+    } else if (policy === 'clock') {
+      let html = '<div style="padding:0.75rem 1.5rem;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:0.75rem;color:var(--text-dim)">Clock frames:</span>';
+      frames.forEach((f, i) => {
+        const isHand = i === clockHand;
+        html += `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid ${isHand ? 'var(--highlight)' : 'var(--border)'};border-radius:6px;padding:0.3rem 0.6rem;font-family:var(--mono);font-size:0.82rem">
+          ${isHand ? '<span style="color:var(--highlight)">▶</span>' : ''} ${f.pageId !== null ? 'P'+f.pageId : '—'} <span style="color:${f.ref ? 'var(--accent4)' : 'var(--text-dim)'}">ref=${f.ref?1:0}</span>
+        </span>`;
+      });
+      html += '</div>';
+      viz.innerHTML = html;
+    } else if (policy === 'lruk') {
+      let html = '<div style="padding:0.75rem 1.5rem;display:flex;flex-direction:column;gap:4px">';
+      html += '<span style="font-size:0.75rem;color:var(--text-dim);margin-bottom:0.25rem">K-th access time (evict smallest):</span>';
+      frames.forEach(f => {
+        const kthTime = f.history.length >= kVal ? f.history[f.history.length - kVal] : null;
+        html += `<div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:0.82rem">
+          <span style="color:var(--text-dim);min-width:60px">Frame ${f.frameId}:</span>
+          <span>${f.pageId !== null ? 'P'+f.pageId : '—'}</span>
+          <span style="color:var(--text-dim);margin-left:auto">${kthTime !== null ? 'k-th@t=' + kthTime : f.history.length + '/' + kVal + ' accesses'}</span>
+        </div>`;
+      });
+      html += '</div>';
+      viz.innerHTML = html;
+    }
+  }
+
+  function renderLog() {
+    const el = document.getElementById('io-log');
+    if (logEntries.length === 0) {
+      el.innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem;text-align:center;padding:0.5rem">No requests yet</div>';
+      return;
+    }
+    el.innerHTML = logEntries.slice(-30).reverse().map(e =>
+      `<div class="io-entry io-${e.type}">${e.msg}</div>`
+    ).join('');
+  }
+
+  function clearLog() { logEntries = []; renderLog(); }
+
+  function addLog(type, msg) {
+    logEntries.push({ type, msg });
+    renderLog();
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function findFrame(pageId) {
+    return frames.findIndex(f => f.pageId === pageId);
+  }
+
+  function chooseEvict() {
+    if (policy === 'lru') {
+      // Find LRU unpinned frame
+      for (let i = lruOrder.length - 1; i >= 0; i--) {
+        const fi = lruOrder[i];
+        if (frames[fi].pinCount === 0) return fi;
+      }
+      return -1;
+    } else if (policy === 'clock') {
+      const start = clockHand;
+      let scanned = 0;
+      while (scanned < numFrames * 2) {
+        const f = frames[clockHand];
+        if (f.pinCount === 0) {
+          if (!f.ref) {
+            return clockHand;
+          }
+          f.ref = false;
+        }
+        clockHand = (clockHand + 1) % numFrames;
+        scanned++;
+      }
+      return -1;
+    } else if (policy === 'lruk') {
+      // Evict frame with oldest k-th access time (or fewest accesses)
+      let victim = -1, oldestKth = Infinity, fewestAccesses = Infinity;
+      frames.forEach((f, i) => {
+        if (f.pinCount > 0) return;
+        if (f.history.length < kVal) {
+          if (f.history.length < fewestAccesses) { fewestAccesses = f.history.length; victim = i; }
+        } else if (victim === -1 || f.history[f.history.length - kVal] < oldestKth) {
+          oldestKth = f.history[f.history.length - kVal];
+          victim = i;
+        }
+      });
+      return victim;
+    }
+    return -1;
+  }
+
+  async function requestPage(pageId, markDirty) {
+    if (busy) return;
+    busy = true;
+    timeCounter++;
+
+    const existingFrame = findFrame(pageId);
+    if (existingFrame !== -1) {
+      // Hit
+      hits++;
+      const f = frames[existingFrame];
+      f.ref = true;
+      f.history.push(timeCounter);
+      if (markDirty) f.dirty = true;
+      if (policy === 'lru') {
+        lruOrder = lruOrder.filter(i => i !== existingFrame);
+        lruOrder.unshift(existingFrame);
+      } else if (policy === 'clock') {
+        clockHand = (clockHand + 1) % numFrames;
+      }
+      renderFrames([{frameId: existingFrame, cls: 'active'}]);
+      renderPolicyViz();
+      updateStats();
+      addLog('hit', `t=${timeCounter}: Page ${pageId} → HIT in Frame ${existingFrame}${markDirty ? ' (dirty)' : ''}`);
+      setExpl(`HIT! Page ${pageId} already in Frame ${existingFrame}.${markDirty ? ' Marked dirty.' : ''}`, 'success');
+      await sleep(500);
+      renderFrames([]);
+      busy = false;
+      return;
+    }
+
+    // Miss
+    misses++;
+    addLog('miss', `t=${timeCounter}: Page ${pageId} → MISS, need to load from disk`);
+    setExpl(`MISS: Page ${pageId} not in buffer pool. Need to load from disk.`, 'warning');
+    await sleep(400);
+
+    // Find empty frame
+    let targetFrame = frames.findIndex(f => f.pageId === null);
+
+    if (targetFrame === -1) {
+      // Need to evict
+      targetFrame = chooseEvict();
+      if (targetFrame === -1) {
+        setExpl('All frames are pinned! Cannot evict.', 'danger');
+        busy = false;
+        return;
+      }
+      const victim = frames[targetFrame];
+      evictions++;
+      const dirtyMsg = victim.dirty ? ' (writing dirty page to disk)' : '';
+      addLog('evict', `t=${timeCounter}: Evicting Page ${victim.pageId} from Frame ${targetFrame}${dirtyMsg}`);
+      setExpl(`Evicting Page ${victim.pageId} from Frame ${targetFrame}${dirtyMsg}`, 'danger');
+      renderFrames([{frameId: targetFrame, cls: 'evicting'}]);
+      await sleep(500);
+
+      if (policy === 'lru') {
+        lruOrder = lruOrder.filter(i => i !== targetFrame);
+      }
+      victim.pageId = null; victim.dirty = false; victim.ref = false; victim.history = [];
+    }
+
+    // Load new page
+    renderFrames([{frameId: targetFrame, cls: 'loading'}]);
+    setExpl(`Loading Page ${pageId} into Frame ${targetFrame} from disk...`, '');
+    await sleep(400);
+
+    const f = frames[targetFrame];
+    f.pageId = pageId; f.dirty = markDirty; f.ref = true; f.history = [timeCounter];
+
+    if (policy === 'lru') {
+      lruOrder.unshift(targetFrame);
+    } else if (policy === 'clock') {
+      clockHand = (targetFrame + 1) % numFrames;
+    }
+
+    renderFrames([{frameId: targetFrame, cls: 'loading'}]);
+    renderPolicyViz();
+    updateStats();
+    addLog('miss', `t=${timeCounter}: Page ${pageId} loaded into Frame ${targetFrame}`);
+    setExpl(`Page ${pageId} loaded into Frame ${targetFrame}.${markDirty ? ' Marked dirty.' : ''}`, 'success');
+    await sleep(300);
+    renderFrames([]);
+    busy = false;
+  }
+
+  async function runWorkload(type) {
+    if (busy) return;
+    resetBP();
+    const workloads = {
+      sequential: { pages: [1,2,3,4,5,6,7,8], desc: 'Sequential: pages 1-8. Watch how hot pages get evicted by later pages (sequential flooding).'},
+      random: { pages: [3,7,1,5,3,8,2,7,1,4], desc: 'Random: 10 accesses to pages 1-8. Some pages will be re-requested (hits).'},
+      hot: { pages: [1,2,3,1,2,3,1,4,1,2,3], desc: 'Hot set: pages 1-3 accessed repeatedly with occasional page 4. Good locality!'},
+      scan: { pages: [1,2,3,4,5,6,7,8,9,10,1,2,3], desc: 'Full scan: pages 1-10 then re-access 1-3. LRU will have evicted them!'}
+    };
+    const wl = workloads[type];
+    document.getElementById('workload-desc').textContent = wl.desc;
+    for (const p of wl.pages) {
+      await requestPage(p, false);
+      await sleep(200);
+    }
+  }
+
+  document.getElementById('btn-request').addEventListener('click', () => {
+    const v = parseInt(document.getElementById('page-req').value);
+    const dirty = document.getElementById('chk-dirty').checked;
+    if (!isNaN(v) && v > 0) requestPage(v, dirty);
+  });
+  document.getElementById('page-req').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btn-request').click();
+  });
+  document.getElementById('btn-reset-bp').addEventListener('click', resetBP);
+  document.getElementById('num-frames').addEventListener('change', resetBP);
+  document.getElementById('k-val').addEventListener('change', resetBP);
+
+  updatePolicyInfo();
+  resetBP();
+  </script>
+</body>
+</html>

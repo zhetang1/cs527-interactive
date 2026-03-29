@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Join Algorithms – CS 527</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .relation-table { display: flex; flex-direction: column; gap: 3px; }
+    .tuple {
+      display: grid; align-items: center;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.35rem 0.6rem;
+      font-family: var(--mono); font-size: 0.83rem;
+      transition: all 0.25s;
+    }
+    .tuple.outer { border-left: 3px solid var(--accent); }
+    .tuple.inner { border-left: 3px solid var(--accent3); }
+    .tuple.active { background: #2a2200; border-color: var(--highlight); box-shadow: 0 0 8px rgba(255,209,102,0.3); }
+    .tuple.matched { background: #0d2a1a; border-color: var(--success); }
+    .tuple.scanning { background: #1a1440; border-color: var(--accent); }
+    .tuple.build { background: #1a2440; border-color: var(--accent); }
+    .tuple.probe { background: #0d3320; border-color: var(--success); }
+
+    .join-layout { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+    .rel-header { font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 0.5rem; }
+
+    .output-table { display: flex; flex-direction: column; gap: 3px; max-height: 300px; overflow-y: auto; }
+    .output-tuple {
+      background: rgba(67,217,173,0.1); border: 1px solid var(--success);
+      border-radius: 6px; padding: 0.3rem 0.6rem;
+      font-family: var(--mono); font-size: 0.82rem;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    .hash-buckets { display: flex; flex-direction: column; gap: 4px; }
+    .hash-bucket { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem; }
+    .bucket-head { font-size: 0.7rem; color: var(--accent); margin-bottom: 0.25rem; }
+    .bucket-entries { display: flex; gap: 4px; flex-wrap: wrap; }
+    .bucket-entry { background: #1a2440; border: 1px solid var(--accent); border-radius: 4px; padding: 0.2rem 0.5rem; font-family: var(--mono); font-size: 0.8rem; }
+    .bucket-entry.probing { border-color: var(--highlight); background: #2a2200; color: var(--highlight); }
+
+    .cost-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; margin-top: 0.75rem; }
+    .cost-row { display: flex; justify-content: space-between; font-size: 0.82rem; font-family: var(--mono); margin-bottom: 0.25rem; }
+    .cost-val { color: var(--accent4); }
+  </style>
+</head>
+<body>
+  <nav>
+    <a class="nav-brand" href="index.html">CS 527</a>
+    <div class="nav-links">
+      <a class="nav-link" href="index.html">Home</a>
+      <a class="nav-link" href="btree.html">B+ Tree</a>
+      <a class="nav-link" href="bloom.html">Bloom Filter</a>
+      <a class="nav-link" href="hashtable.html">Hash Tables</a>
+      <a class="nav-link" href="bufferpool.html">Buffer Pool</a>
+      <a class="nav-link active" href="joins.html">Join Algorithms</a>
+      <a class="nav-link" href="sorting.html">External Sort</a>
+      <a class="nav-link" href="locking.html">2PL &amp; Locking</a>
+    </div>
+  </nav>
+
+  <div class="page">
+    <div class="page-header">
+      <div class="page-title">Join Algorithms</div>
+      <div class="page-desc">Three strategies to compute R ⋈ S on a join attribute. Compare their I/O costs and access patterns.</div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchJoin('nlj')">Nested Loop Join</div>
+      <div class="tab" onclick="switchJoin('smj')">Sort-Merge Join</div>
+      <div class="tab" onclick="switchJoin('hj')">Hash Join</div>
+    </div>
+
+    <!-- NLJ -->
+    <div class="tab-panel active" id="panel-nlj">
+      <div class="two-col">
+        <div>
+          <div class="viz-area">
+            <div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border)">
+              <div class="join-layout">
+                <div>
+                  <div class="rel-header">R (Outer) — <span style="color:var(--accent)">●</span></div>
+                  <div class="relation-table" id="nlj-R"></div>
+                </div>
+                <div>
+                  <div class="rel-header">S (Inner) — <span style="color:var(--accent3)">●</span></div>
+                  <div class="relation-table" id="nlj-S"></div>
+                </div>
+                <div>
+                  <div class="rel-header">Output</div>
+                  <div class="output-table" id="nlj-output"><div style="color:var(--text-dim);font-size:0.8rem">Run join to see output</div></div>
+                </div>
+              </div>
+            </div>
+            <div style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+              <div class="explanation" id="nlj-explanation">Naïve nested loop: for each tuple in R, scan all of S. Cost = |R| × |S| comparisons.</div>
+            </div>
+          </div>
+          <div class="cost-box">
+            <div style="font-size:0.75rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:0.5rem">Cost Analysis (I/O pages)</div>
+            <div class="cost-row"><span>|R| pages</span><span class="cost-val" id="nlj-pr">—</span></div>
+            <div class="cost-row"><span>|S| pages</span><span class="cost-val" id="nlj-ps">—</span></div>
+            <div class="cost-row"><span>Comparisons</span><span class="cost-val" id="nlj-comps">0</span></div>
+            <div class="cost-row" style="border-top:1px solid var(--border);margin-top:0.25rem;padding-top:0.25rem">
+              <span><b>Total I/O</b></span><span class="cost-val" id="nlj-cost">P_R + P_R × P_S</span>
+            </div>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="card">
+            <div class="card-title">Relations (R ⋈ S on id)</div>
+            <div class="input-row"><label>R tuples</label>
+              <select id="nlj-r-size">
+                <option value="4" selected>4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+              </select>
+            </div>
+            <div class="input-row"><label>S tuples</label>
+              <select id="nlj-s-size">
+                <option value="4">4</option>
+                <option value="5" selected>5</option>
+                <option value="6">6</option>
+              </select>
+            </div>
+            <div class="btn-group" style="margin-top:0.75rem">
+              <button class="btn btn-primary" id="nlj-run">▶ Run Join</button>
+              <button class="btn btn-ghost" id="nlj-reset">Reset</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Speed</div>
+            <div class="input-row"><label>Delay</label>
+              <select id="nlj-speed">
+                <option value="600">Slow</option>
+                <option value="300" selected>Normal</option>
+                <option value="100">Fast</option>
+              </select>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Algorithm</div>
+            <div style="font-family:var(--mono);font-size:0.8rem;color:var(--text-dim);line-height:1.9">
+              <b style="color:var(--accent)">for</b> each r in R:<br>
+              &nbsp;&nbsp;<b style="color:var(--accent)">for</b> each s in S:<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;<b style="color:var(--accent)">if</b> r.id == s.id:<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;emit(r, s)<br><br>
+              Cost = P_R + |R| × P_S<br>
+              (naïve: tuple-level)<br><br>
+              <b style="color:var(--accent3)">Block NLJ:</b><br>
+              Process B-2 pages of R at once<br>
+              Cost = P_R + ⌈P_R/(B-2)⌉ × P_S
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sort-Merge Join -->
+    <div class="tab-panel" id="panel-smj">
+      <div class="two-col">
+        <div>
+          <div class="viz-area">
+            <div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border)">
+              <div class="join-layout">
+                <div>
+                  <div class="rel-header">R (sorted) — <span style="color:var(--accent)">●</span></div>
+                  <div class="relation-table" id="smj-R"></div>
+                </div>
+                <div>
+                  <div class="rel-header">S (sorted) — <span style="color:var(--accent3)">●</span></div>
+                  <div class="relation-table" id="smj-S"></div>
+                </div>
+                <div>
+                  <div class="rel-header">Output</div>
+                  <div class="output-table" id="smj-output"><div style="color:var(--text-dim);font-size:0.8rem">Run join to see output</div></div>
+                </div>
+              </div>
+            </div>
+            <div style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+              <div class="explanation" id="smj-explanation">Sort-Merge: sort both relations, then merge with two pointers advancing in tandem.</div>
+            </div>
+          </div>
+          <div class="cost-box">
+            <div style="font-size:0.75rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:0.5rem">Cost Analysis</div>
+            <div class="cost-row"><span>Sort R</span><span class="cost-val">2 × P_R × (1 + ⌈log_{B-1}⌈P_R/B⌉⌉)</span></div>
+            <div class="cost-row"><span>Sort S</span><span class="cost-val">2 × P_S × (1 + ⌈log_{B-1}⌈P_S/B⌉⌉)</span></div>
+            <div class="cost-row"><span>Merge pass</span><span class="cost-val">P_R + P_S</span></div>
+            <div class="cost-row"><span>Comparisons</span><span class="cost-val" id="smj-comps">0</span></div>
+            <div class="cost-row" style="border-top:1px solid var(--border);margin-top:0.25rem;padding-top:0.25rem">
+              <span><b>Best when</b></span><span class="cost-val">already sorted or B large</span>
+            </div>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="card">
+            <div class="card-title">Relations</div>
+            <div class="btn-group">
+              <button class="btn btn-primary" id="smj-run">▶ Run Join</button>
+              <button class="btn btn-ghost" id="smj-reset">Reset</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Speed</div>
+            <div class="input-row"><label>Delay</label>
+              <select id="smj-speed">
+                <option value="600">Slow</option>
+                <option value="300" selected>Normal</option>
+                <option value="100">Fast</option>
+              </select>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Algorithm</div>
+            <div style="font-family:var(--mono);font-size:0.8rem;color:var(--text-dim);line-height:1.9">
+              <b>Phase 1:</b> Sort R, Sort S<br><br>
+              <b>Phase 2 (Merge):</b><br>
+              i=0, j=0<br>
+              <b style="color:var(--accent)">while</b> i&lt;|R| and j&lt;|S|:<br>
+              &nbsp;&nbsp;<b style="color:var(--accent)">if</b> R[i].id == S[j].id:<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;emit; advance both<br>
+              &nbsp;&nbsp;<b style="color:var(--accent)">elif</b> R[i].id &lt; S[j].id:<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;i++<br>
+              &nbsp;&nbsp;<b style="color:var(--accent)">else</b>: j++<br><br>
+              <b>Best case:</b> P_R + P_S<br>
+              (if data already sorted)
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hash Join -->
+    <div class="tab-panel" id="panel-hj">
+      <div class="two-col">
+        <div>
+          <div class="viz-area">
+            <div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border)">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+                <div>
+                  <div class="rel-header">R (Build) — <span style="color:var(--accent)">●</span></div>
+                  <div class="relation-table" id="hj-R"></div>
+                </div>
+                <div>
+                  <div class="rel-header">S (Probe) — <span style="color:var(--accent3)">●</span></div>
+                  <div class="relation-table" id="hj-S"></div>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+                <div>
+                  <div class="rel-header">Hash Table (built from R)</div>
+                  <div class="hash-buckets" id="hj-hashtable"><div style="color:var(--text-dim);font-size:0.8rem">Not built yet</div></div>
+                </div>
+                <div>
+                  <div class="rel-header">Output</div>
+                  <div class="output-table" id="hj-output"><div style="color:var(--text-dim);font-size:0.8rem">Run join to see output</div></div>
+                </div>
+              </div>
+            </div>
+            <div style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+              <div class="explanation" id="hj-explanation">Hash Join: Build phase — hash all R tuples into a hash table. Probe phase — for each S tuple, probe the table.</div>
+            </div>
+          </div>
+          <div class="cost-box">
+            <div style="font-size:0.75rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:0.5rem">Cost Analysis</div>
+            <div class="cost-row"><span>Build (read R)</span><span class="cost-val">P_R</span></div>
+            <div class="cost-row"><span>Probe (read S)</span><span class="cost-val">P_S</span></div>
+            <div class="cost-row"><span>Total I/O</span><span class="cost-val">P_R + P_S</span></div>
+            <div class="cost-row"><span>Probes done</span><span class="cost-val" id="hj-probes">0</span></div>
+            <div class="cost-row" style="border-top:1px solid var(--border);margin-top:0.25rem;padding-top:0.25rem">
+              <span><b>Requires</b></span><span class="cost-val">B > √P_R buffer pages</span>
+            </div>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="card">
+            <div class="card-title">Relations</div>
+            <div class="btn-group">
+              <button class="btn btn-primary" id="hj-run">▶ Run Join</button>
+              <button class="btn btn-ghost" id="hj-reset">Reset</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Speed</div>
+            <div class="input-row"><label>Delay</label>
+              <select id="hj-speed">
+                <option value="600">Slow</option>
+                <option value="300" selected>Normal</option>
+                <option value="100">Fast</option>
+              </select>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Algorithm</div>
+            <div style="font-family:var(--mono);font-size:0.8rem;color:var(--text-dim);line-height:1.9">
+              <b style="color:var(--accent)">Phase 1: Build</b><br>
+              <b>for</b> each r in R:<br>
+              &nbsp;&nbsp;HT[h(r.id)].add(r)<br><br>
+              <b style="color:var(--accent3)">Phase 2: Probe</b><br>
+              <b>for</b> each s in S:<br>
+              &nbsp;&nbsp;<b>for</b> r in HT[h(s.id)]:<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;<b>if</b> r.id == s.id:<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;emit(r, s)<br><br>
+              Total I/O = P_R + P_S<br>
+              (if HT fits in memory)
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function setExpl(id, msg, type) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = 'explanation' + (type ? ' ' + type : '');
+  }
+
+  // Generate relations with some overlapping join keys
+  function genRelations(rSize, sSize) {
+    const rKeys = Array.from({length: rSize}, (_, i) => i + 1);
+    const sKeys = Array.from({length: sSize}, (_, i) => i + 2); // overlap on 2..rSize
+    const R = rKeys.map(k => ({ id: k, val: `r${k}` }));
+    const S = sKeys.map(k => ({ id: k, val: `s${k}` }));
+    return { R, S };
+  }
+
+  function renderRelation(elId, tuples, side, activeIdx, matchedIdxs = new Set(), altCls = '') {
+    let html = '';
+    tuples.forEach((t, i) => {
+      let cls = `tuple ${side}`;
+      if (i === activeIdx) cls += ' active';
+      else if (matchedIdxs.has(i)) cls += ' matched';
+      else if (altCls) cls += ' ' + altCls;
+      html += `<div class="${cls}" style="grid-template-columns:40px 1fr">${t.id}<span style="color:var(--text-dim);margin-left:0.5rem">${t.val}</span></div>`;
+    });
+    document.getElementById(elId).innerHTML = html;
+  }
+
+  // ============================================================
+  // NESTED LOOP JOIN
+  // ============================================================
+  let nljR = [], nljS = [], nljRunning = false, nljComps = 0;
+
+  function nljInit() {
+    const n = parseInt(document.getElementById('nlj-r-size').value);
+    const m = parseInt(document.getElementById('nlj-s-size').value);
+    const { R, S } = genRelations(n, m);
+    nljR = R; nljS = S; nljComps = 0;
+    renderRelation('nlj-R', nljR, 'outer', -1);
+    renderRelation('nlj-S', nljS, 'inner', -1);
+    document.getElementById('nlj-output').innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem">Run join to see output</div>';
+    document.getElementById('nlj-pr').textContent = Math.ceil(nljR.length / 2);
+    document.getElementById('nlj-ps').textContent = Math.ceil(nljS.length / 2);
+    document.getElementById('nlj-comps').textContent = 0;
+    const pr = Math.ceil(nljR.length / 2), ps = Math.ceil(nljS.length / 2);
+    document.getElementById('nlj-cost').textContent = `${pr} + ${nljR.length} × ${ps} = ${pr + nljR.length * ps}`;
+    setExpl('nlj-explanation', 'Naïve nested loop: for each tuple in R, scan all of S. Cost = |R| × |S| comparisons.', '');
+  }
+
+  async function nljRun() {
+    if (nljRunning) return;
+    nljRunning = true;
+    const delay = parseInt(document.getElementById('nlj-speed').value);
+    nljComps = 0;
+    const output = [];
+    document.getElementById('nlj-output').innerHTML = '';
+
+    for (let i = 0; i < nljR.length; i++) {
+      renderRelation('nlj-R', nljR, 'outer', i);
+      setExpl('nlj-explanation', `Outer: scanning R[${i}] (id=${nljR[i].id}). Now scan all of S...`, '');
+      for (let j = 0; j < nljS.length; j++) {
+        renderRelation('nlj-S', nljS, 'inner', j);
+        nljComps++;
+        document.getElementById('nlj-comps').textContent = nljComps;
+        await sleep(delay);
+        if (nljR[i].id === nljS[j].id) {
+          output.push({ r: nljR[i], s: nljS[j] });
+          const outEl = document.getElementById('nlj-output');
+          if (outEl.querySelector('div:not(.output-tuple)')) outEl.innerHTML = '';
+          outEl.innerHTML += `<div class="output-tuple">(${nljR[i].id}, ${nljR[i].val}, ${nljS[j].val})</div>`;
+          setExpl('nlj-explanation', `Match! R[${i}].id = S[${j}].id = ${nljR[i].id} → emit tuple.`, 'success');
+          await sleep(delay);
+        }
+      }
+    }
+
+    renderRelation('nlj-R', nljR, 'outer', -1);
+    renderRelation('nlj-S', nljS, 'inner', -1);
+    setExpl('nlj-explanation', `Done! ${nljComps} comparisons, ${output.length} output tuples.`, 'success');
+    nljRunning = false;
+  }
+
+  document.getElementById('nlj-run').addEventListener('click', nljRun);
+  document.getElementById('nlj-reset').addEventListener('click', nljInit);
+  document.getElementById('nlj-r-size').addEventListener('change', nljInit);
+  document.getElementById('nlj-s-size').addEventListener('change', nljInit);
+
+  // ============================================================
+  // SORT-MERGE JOIN
+  // ============================================================
+  let smjR = [], smjS = [], smjRunning = false, smjComps = 0;
+
+  function smjInit() {
+    // Generate unsorted, then sort
+    const { R, S } = genRelations(5, 5);
+    // Shuffle
+    smjR = [...R].sort(() => Math.random() - 0.5);
+    smjS = [...S].sort(() => Math.random() - 0.5);
+    smjComps = 0;
+    renderRelation('smj-R', smjR, 'outer', -1);
+    renderRelation('smj-S', smjS, 'inner', -1);
+    document.getElementById('smj-output').innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem">Run join to see output</div>';
+    document.getElementById('smj-comps').textContent = 0;
+    setExpl('smj-explanation', 'Sort-Merge: Phase 1 sorts both relations. Phase 2 merges with two pointers.', '');
+  }
+
+  async function smjRun() {
+    if (smjRunning) return;
+    smjRunning = true;
+    smjComps = 0;
+    const delay = parseInt(document.getElementById('smj-speed').value);
+
+    // Phase 1: Sort
+    setExpl('smj-explanation', 'Phase 1: Sorting R by id...', '');
+    await sleep(delay * 1.5);
+    smjR = [...smjR].sort((a, b) => a.id - b.id);
+    renderRelation('smj-R', smjR, 'outer', -1);
+
+    setExpl('smj-explanation', 'Phase 1: Sorting S by id...', '');
+    await sleep(delay * 1.5);
+    smjS = [...smjS].sort((a, b) => a.id - b.id);
+    renderRelation('smj-S', smjS, 'inner', -1);
+
+    setExpl('smj-explanation', 'Phase 2: Merging sorted relations...', '');
+    await sleep(delay);
+
+    const output = [];
+    document.getElementById('smj-output').innerHTML = '';
+    let i = 0, j = 0;
+
+    while (i < smjR.length && j < smjS.length) {
+      renderRelation('smj-R', smjR, 'outer', i);
+      renderRelation('smj-S', smjS, 'inner', j);
+      smjComps++;
+      document.getElementById('smj-comps').textContent = smjComps;
+      await sleep(delay);
+
+      if (smjR[i].id === smjS[j].id) {
+        output.push({ r: smjR[i], s: smjS[j] });
+        const outEl = document.getElementById('smj-output');
+        if (outEl.querySelector('div:not(.output-tuple)')) outEl.innerHTML = '';
+        outEl.innerHTML += `<div class="output-tuple">(${smjR[i].id}, ${smjR[i].val}, ${smjS[j].val})</div>`;
+        setExpl('smj-explanation', `Match: R[${i}].id = S[${j}].id = ${smjR[i].id}. Advance both pointers.`, 'success');
+        i++; j++;
+      } else if (smjR[i].id < smjS[j].id) {
+        setExpl('smj-explanation', `R[${i}].id=${smjR[i].id} < S[${j}].id=${smjS[j].id}: advance R pointer.`, '');
+        i++;
+      } else {
+        setExpl('smj-explanation', `R[${i}].id=${smjR[i].id} > S[${j}].id=${smjS[j].id}: advance S pointer.`, '');
+        j++;
+      }
+    }
+
+    renderRelation('smj-R', smjR, 'outer', -1);
+    renderRelation('smj-S', smjS, 'inner', -1);
+    setExpl('smj-explanation', `Done! ${smjComps} comparisons, ${output.length} output tuples.`, 'success');
+    smjRunning = false;
+  }
+
+  document.getElementById('smj-run').addEventListener('click', smjRun);
+  document.getElementById('smj-reset').addEventListener('click', smjInit);
+
+  // ============================================================
+  // HASH JOIN
+  // ============================================================
+  let hjR = [], hjS = [], hjRunning = false, hjProbes = 0;
+  const HJ_BUCKETS = 4;
+
+  function hjHash(key) { return key % HJ_BUCKETS; }
+
+  function hjInit() {
+    const { R, S } = genRelations(5, 5);
+    hjR = R; hjS = S; hjProbes = 0;
+    renderRelation('hj-R', hjR, 'outer', -1);
+    renderRelation('hj-S', hjS, 'inner', -1);
+    document.getElementById('hj-hashtable').innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem">Not built yet</div>';
+    document.getElementById('hj-output').innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem">Run join to see output</div>';
+    document.getElementById('hj-probes').textContent = 0;
+    setExpl('hj-explanation', 'Hash Join: Build phase hashes R into a hash table, then probe with each S tuple.', '');
+  }
+
+  function renderHashTable(ht, probingBucket = -1, probingKey = -1) {
+    let html = '';
+    for (let b = 0; b < HJ_BUCKETS; b++) {
+      const isProbing = b === probingBucket;
+      html += `<div class="hash-bucket ${isProbing ? 'active' : ''}">
+        <div class="bucket-head">Bucket ${b} (id % ${HJ_BUCKETS} = ${b})</div>
+        <div class="bucket-entries">
+          ${(ht[b] || []).map(r => `<span class="bucket-entry ${isProbing && r.id === probingKey ? 'probing' : ''}">${r.id}:${r.val}</span>`).join('') || '<span style="color:var(--text-dim);font-size:0.75rem">empty</span>'}
+        </div>
+      </div>`;
+    }
+    document.getElementById('hj-hashtable').innerHTML = html;
+  }
+
+  async function hjRun() {
+    if (hjRunning) return;
+    hjRunning = true;
+    hjProbes = 0;
+    const delay = parseInt(document.getElementById('hj-speed').value);
+
+    // Phase 1: Build
+    setExpl('hj-explanation', 'Phase 1 (Build): Hashing all R tuples into the hash table...', '');
+    const ht = Array.from({length: HJ_BUCKETS}, () => []);
+    document.getElementById('hj-hashtable').innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem">Building...</div>';
+
+    for (let i = 0; i < hjR.length; i++) {
+      renderRelation('hj-R', hjR, 'outer', i, new Set(), 'build');
+      const r = hjR[i];
+      const b = hjHash(r.id);
+      setExpl('hj-explanation', `Build: hash(${r.id}) = ${b} → insert into bucket ${b}.`, '');
+      await sleep(delay);
+      ht[b].push(r);
+      renderHashTable(ht);
+    }
+
+    renderRelation('hj-R', hjR, 'outer', -1);
+    setExpl('hj-explanation', 'Hash table built! Phase 2 (Probe): scan S and probe the hash table.', 'success');
+    await sleep(delay);
+
+    // Phase 2: Probe
+    document.getElementById('hj-output').innerHTML = '';
+    const output = [];
+
+    for (let j = 0; j < hjS.length; j++) {
+      const s = hjS[j];
+      const b = hjHash(s.id);
+      renderRelation('hj-S', hjS, 'inner', j, new Set(), 'probe');
+      renderHashTable(ht, b, -1);
+      setExpl('hj-explanation', `Probe: hash(${s.id}) = ${b} → scan bucket ${b} for id=${s.id}.`, '');
+      await sleep(delay);
+
+      hjProbes++;
+      document.getElementById('hj-probes').textContent = hjProbes;
+      renderHashTable(ht, b, s.id);
+      await sleep(delay);
+
+      for (const r of (ht[b] || [])) {
+        if (r.id === s.id) {
+          output.push({ r, s });
+          const outEl = document.getElementById('hj-output');
+          if (outEl.querySelector('div:not(.output-tuple)')) outEl.innerHTML = '';
+          outEl.innerHTML += `<div class="output-tuple">(${r.id}, ${r.val}, ${s.val})</div>`;
+          setExpl('hj-explanation', `Match in bucket ${b}: R.id = S.id = ${r.id} → emit!`, 'success');
+          await sleep(delay);
+        }
+      }
+    }
+
+    renderRelation('hj-S', hjS, 'inner', -1);
+    renderHashTable(ht);
+    setExpl('hj-explanation', `Done! Probed ${hjProbes} buckets, ${output.length} output tuples. Total I/O = P_R + P_S.`, 'success');
+    hjRunning = false;
+  }
+
+  document.getElementById('hj-run').addEventListener('click', hjRun);
+  document.getElementById('hj-reset').addEventListener('click', hjInit);
+
+  // Tab switching
+  function switchJoin(name) {
+    document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['nlj','smj','hj'][i]===name));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + name).classList.add('active');
+  }
+
+  nljInit(); smjInit(); hjInit();
+  </script>
+</body>
+</html>

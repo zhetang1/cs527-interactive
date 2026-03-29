@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bloom Filter – CS 527</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .bit-grid { display: flex; flex-wrap: wrap; gap: 4px; padding: 1.5rem; justify-content: center; }
+    .bit {
+      width: 40px; height: 40px;
+      background: var(--surface2);
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--mono); font-size: 1rem; font-weight: 700;
+      transition: all 0.4s;
+      position: relative;
+      cursor: default;
+    }
+    .bit.set { background: #1a2a40; border-color: var(--accent3); color: var(--accent3); }
+    .bit.active-h1 { background: #2a1530; border-color: #ff6584; color: #ff6584; box-shadow: 0 0 12px rgba(255,101,132,0.4); }
+    .bit.active-h2 { background: #1a2a10; border-color: #43d9ad; color: #43d9ad; box-shadow: 0 0 12px rgba(67,217,173,0.4); }
+    .bit.active-h3 { background: #2a2800; border-color: #ffd166; color: #ffd166; box-shadow: 0 0 12px rgba(255,209,102,0.4); }
+    .bit.miss { background: #300a0a; border-color: #ff6584; animation: shake 0.3s ease-in-out; }
+    .bit-idx { position: absolute; top: 2px; left: 4px; font-size: 9px; color: var(--text-dim); font-weight: 400; }
+    @keyframes shake { 0%,100% { transform: translateX(0) } 25% { transform: translateX(-3px) } 75% { transform: translateX(3px) } }
+    @keyframes pop { 0% { transform: scale(0.8); opacity: 0.5 } 100% { transform: scale(1); opacity: 1 } }
+    .bit.pop { animation: pop 0.25s ease-out; }
+
+    .key-list { display: flex; flex-direction: column; gap: 0.4rem; max-height: 250px; overflow-y: auto; }
+    .key-item {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.4rem 0.75rem;
+      font-family: var(--mono); font-size: 0.85rem;
+    }
+    .key-item .hash-info { font-size: 0.7rem; color: var(--text-dim); }
+    .result-badge {
+      padding: 0.3rem 0.75rem; border-radius: 20px; font-weight: 700; font-size: 0.85rem;
+    }
+    .result-true { background: rgba(67,217,173,0.2); color: var(--success); border: 1px solid var(--success); }
+    .result-false { background: rgba(255,101,132,0.2); color: var(--danger); border: 1px solid var(--danger); }
+    .result-fp { background: rgba(255,209,102,0.2); color: var(--accent4); border: 1px solid var(--accent4); }
+
+    .hash-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem; border-radius: 8px; }
+    .hash-row.h1 { background: rgba(255,101,132,0.1); }
+    .hash-row.h2 { background: rgba(67,217,173,0.1); }
+    .hash-row.h3 { background: rgba(255,209,102,0.1); }
+    .hash-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .h1-dot { background: #ff6584; }
+    .h2-dot { background: #43d9ad; }
+    .h3-dot { background: #ffd166; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a class="nav-brand" href="index.html">CS 527</a>
+    <div class="nav-links">
+      <a class="nav-link" href="index.html">Home</a>
+      <a class="nav-link" href="btree.html">B+ Tree</a>
+      <a class="nav-link active" href="bloom.html">Bloom Filter</a>
+      <a class="nav-link" href="hashtable.html">Hash Tables</a>
+      <a class="nav-link" href="bufferpool.html">Buffer Pool</a>
+      <a class="nav-link" href="joins.html">Join Algorithms</a>
+      <a class="nav-link" href="sorting.html">External Sort</a>
+      <a class="nav-link" href="locking.html">2PL &amp; Locking</a>
+    </div>
+  </nav>
+
+  <div class="page">
+    <div class="page-header">
+      <div class="page-title">Bloom Filter</div>
+      <div class="page-desc">A probabilistic data structure using a bit array and k hash functions. Answers "is this key in the set?" with zero false negatives but possible false positives.</div>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <div class="viz-area">
+          <div style="padding:1rem 1.5rem; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+            <div class="legend">
+              <div class="legend-item"><div class="legend-dot" style="background:#1a2a40;border:2px solid #43d9ad"></div> Bit = 1</div>
+              <div class="legend-item"><div class="legend-dot" style="background:var(--surface2);border:2px solid var(--border)"></div> Bit = 0</div>
+              <div class="legend-item"><div class="legend-dot" style="background:#2a1530;border:2px solid #ff6584"></div> Hash 1</div>
+              <div class="legend-item"><div class="legend-dot" style="background:#1a2a10;border:2px solid #43d9ad"></div> Hash 2</div>
+              <div class="legend-item"><div class="legend-dot" style="background:#2a2800;border:2px solid #ffd166"></div> Hash 3</div>
+            </div>
+            <div class="stats">
+              <div class="stat">
+                <div class="stat-val" id="stat-bits-set">0</div>
+                <div class="stat-lbl">Bits Set</div>
+              </div>
+              <div class="stat">
+                <div class="stat-val" id="stat-fill">0%</div>
+                <div class="stat-lbl">Fill Rate</div>
+              </div>
+              <div class="stat">
+                <div class="stat-val" id="stat-fp-rate">0%</div>
+                <div class="stat-lbl">FP Rate</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="bit-grid" id="bit-grid"></div>
+
+          <div style="padding:0.75rem 1.5rem; border-top:1px solid var(--border);">
+            <div class="explanation" id="explanation">
+              A Bloom filter uses k hash functions to map keys to bit positions. Insert sets those bits; lookup checks if all are set.
+            </div>
+          </div>
+        </div>
+
+        <!-- Lookup result -->
+        <div id="lookup-result" style="display:none; margin-top:1rem;">
+          <div class="card">
+            <div class="card-title">Lookup Result</div>
+            <div id="lookup-detail"></div>
+          </div>
+        </div>
+
+        <!-- Inserted keys -->
+        <div class="card" style="margin-top:1rem;">
+          <div class="card-title">Inserted Keys</div>
+          <div class="key-list" id="key-list">
+            <div style="color:var(--text-dim);font-size:0.85rem;text-align:center;padding:1rem;">No keys inserted yet</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <div class="card">
+          <div class="card-title">Configuration</div>
+          <div class="input-row">
+            <label>Size (m)</label>
+            <select id="size-select">
+              <option value="8">8 bits</option>
+              <option value="16" selected>16 bits</option>
+              <option value="24">24 bits</option>
+              <option value="32">32 bits</option>
+            </select>
+          </div>
+          <div class="input-row" style="margin-top:0.5rem">
+            <label>Hash fns (k)</label>
+            <select id="k-select">
+              <option value="2">k = 2</option>
+              <option value="3" selected>k = 3</option>
+              <option value="4">k = 4</option>
+            </select>
+          </div>
+          <button class="btn btn-ghost" style="width:100%;margin-top:0.75rem" id="btn-reset">Reset Filter</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Insert Key</div>
+          <div class="input-row">
+            <input type="text" id="insert-val" placeholder="e.g. alice, RZA">
+            <button class="btn btn-primary" id="btn-insert">Insert</button>
+          </div>
+          <div class="btn-group" style="margin-top:0.75rem">
+            <button class="btn btn-ghost btn-sm" onclick="bulkInsert(['RZA','GZA','ODB'])">Wu-Tang Demo</button>
+            <button class="btn btn-ghost btn-sm" onclick="bulkInsert(['alice','bob','charlie','dave'])">Names</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Lookup Key</div>
+          <div class="input-row">
+            <input type="text" id="lookup-val" placeholder="key to check">
+            <button class="btn btn-success" id="btn-lookup">Lookup</button>
+          </div>
+          <div style="font-size:0.8rem;color:var(--text-dim);margin-top:0.5rem">
+            Try looking up a key you haven't inserted to see a false negative guarantee, or a never-inserted key that happens to collide for a false positive.
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">How Hash Functions Work</div>
+          <div id="hash-display" style="display:flex;flex-direction:column;gap:0.5rem">
+            <div style="color:var(--text-dim);font-size:0.8rem">Enter a key above to see hash values</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Key Properties</div>
+          <div style="font-size:0.82rem;color:var(--text-dim);line-height:1.9">
+            <b style="color:var(--success)">False Negatives:</b> Never occur<br>
+            <b style="color:var(--danger)">False Positives:</b> Can occur<br>
+            <b style="color:var(--accent)">Space:</b> O(m) bits (very compact)<br>
+            <b style="color:var(--accent)">Insert:</b> O(k) hash computations<br>
+            <b style="color:var(--accent)">Lookup:</b> O(k) hash computations<br>
+            <b style="color:var(--accent4)">Delete:</b> Not supported<br><br>
+            <b style="color:var(--text)">Optimal k</b> = (m/n) × ln(2)<br>
+            <b style="color:var(--text)">FP rate</b> ≈ (1 - e<sup>-kn/m</sup>)<sup>k</sup>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  // ============================================================
+  // Hash functions (simple but illustrative)
+  // ============================================================
+  function hashStr(s, seed, m) {
+    let h = seed ^ 0xdeadbeef;
+    for (let i = 0; i < s.length; i++) {
+      h = Math.imul(h ^ s.charCodeAt(i), 0x9e3779b9);
+      h = ((h << 13) | (h >>> 19));
+    }
+    h ^= (h >>> 16);
+    h = Math.imul(h, 0x85ebca6b);
+    h ^= (h >>> 13);
+    return Math.abs(h) % m;
+  }
+
+  function getHashes(key, k, m) {
+    const seeds = [0x12345678, 0x87654321, 0xabcdef01, 0xfedcba98];
+    return seeds.slice(0, k).map((seed, i) => hashStr(key, seed + i * 0x1234, m));
+  }
+
+  // ============================================================
+  // State
+  // ============================================================
+  let m = 16, k = 3;
+  let bits = new Array(m).fill(0);
+  let insertedKeys = [];
+  let activeIndices = [];
+
+  function getM() { return parseInt(document.getElementById('size-select').value); }
+  function getK() { return parseInt(document.getElementById('k-select').value); }
+
+  function reset() {
+    m = getM(); k = getK();
+    bits = new Array(m).fill(0);
+    insertedKeys = [];
+    activeIndices = [];
+    renderBits([]);
+    renderKeyList();
+    updateStats();
+    setExplanation('Bloom filter reset. Insert keys to begin.', '');
+    document.getElementById('lookup-result').style.display = 'none';
+    document.getElementById('hash-display').innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem">Enter a key above to see hash values</div>';
+  }
+
+  function renderBits(highlight) {
+    // highlight: [{idx, cls}]
+    const hlMap = {};
+    highlight.forEach(h => { hlMap[h.idx] = h.cls; });
+
+    let html = '';
+    for (let i = 0; i < m; i++) {
+      let cls = 'bit';
+      if (hlMap[i]) cls += ' ' + hlMap[i] + ' pop';
+      else if (bits[i]) cls += ' set';
+      html += `<div class="${cls}" title="bit ${i}"><span class="bit-idx">${i}</span>${bits[i]}</div>`;
+    }
+    document.getElementById('bit-grid').innerHTML = html;
+  }
+
+  function renderKeyList() {
+    const el = document.getElementById('key-list');
+    if (insertedKeys.length === 0) {
+      el.innerHTML = '<div style="color:var(--text-dim);font-size:0.85rem;text-align:center;padding:1rem;">No keys inserted yet</div>';
+      return;
+    }
+    el.innerHTML = insertedKeys.map(({key, hashes}) => `
+      <div class="key-item">
+        <span>${key}</span>
+        <span class="hash-info">bits: ${hashes.join(', ')}</span>
+      </div>
+    `).join('');
+  }
+
+  function updateStats() {
+    const bitsSet = bits.filter(b => b).length;
+    document.getElementById('stat-bits-set').textContent = bitsSet;
+    const fillRate = (bitsSet / m * 100).toFixed(0);
+    document.getElementById('stat-fill').textContent = fillRate + '%';
+    // FP rate approx
+    const n = insertedKeys.length;
+    const fpRate = n === 0 ? 0 : Math.pow(1 - Math.exp(-k * n / m), k) * 100;
+    document.getElementById('stat-fp-rate').textContent = fpRate.toFixed(1) + '%';
+  }
+
+  function showHashDisplay(key) {
+    const hashes = getHashes(key, k, m);
+    const colors = ['h1','h2','h3','h4'];
+    const labels = ['Hash₁','Hash₂','Hash₃','Hash₄'];
+    const dotCls = ['h1-dot','h2-dot','h3-dot'];
+    let html = '';
+    hashes.forEach((h, i) => {
+      html += `<div class="hash-row ${colors[i]}">
+        <div class="hash-dot ${dotCls[i]}"></div>
+        <span style="font-size:0.8rem;color:var(--text-dim);min-width:55px">${labels[i]}("${key}")</span>
+        <span style="font-family:var(--mono);font-size:0.9rem"> = ${h}</span>
+        <span style="font-size:0.75rem;color:var(--text-dim);margin-left:auto">bit[${h}]</span>
+      </div>`;
+    });
+    document.getElementById('hash-display').innerHTML = html;
+  }
+
+  function setExplanation(msg, type) {
+    const el = document.getElementById('explanation');
+    el.textContent = msg;
+    el.className = 'explanation' + (type ? ' ' + type : '');
+  }
+
+  async function animateInsert(key) {
+    const hashes = getHashes(key, k, m);
+    showHashDisplay(key);
+
+    const hlCls = ['active-h1','active-h2','active-h3','active-h4'];
+
+    // Animate each hash one by one
+    for (let i = 0; i < hashes.length; i++) {
+      const highlight = hashes.slice(0, i + 1).map((h, j) => ({ idx: h, cls: hlCls[j] }));
+      renderBits(highlight);
+      setExplanation(`Hash ${i+1}("${key}") = ${hashes[i]} → set bit[${hashes[i]}] = 1`, '');
+      await sleep(400);
+    }
+
+    hashes.forEach(h => { bits[h] = 1; });
+    insertedKeys.push({ key, hashes });
+
+    await sleep(300);
+    renderBits([]);
+    renderKeyList();
+    updateStats();
+    setExplanation(`Inserted "${key}": set bits [${hashes.join(', ')}]. All k=${k} bits now = 1.`, 'success');
+  }
+
+  async function animateLookup(key) {
+    const hashes = getHashes(key, k, m);
+    showHashDisplay(key);
+    const isActuallyPresent = insertedKeys.some(e => e.key === key);
+    const hlCls = ['active-h1','active-h2','active-h3','active-h4'];
+
+    let allSet = true;
+    for (let i = 0; i < hashes.length; i++) {
+      const highlight = hashes.slice(0, i + 1).map((h, j) => ({
+        idx: h,
+        cls: bits[h] ? hlCls[j] : 'miss'
+      }));
+      renderBits(highlight);
+      if (!bits[hashes[i]]) {
+        setExplanation(`bit[${hashes[i]}] = 0 → key "${key}" is DEFINITELY NOT in set.`, 'danger');
+        allSet = false;
+        await sleep(500);
+        break;
+      }
+      setExplanation(`bit[${hashes[i]}] = 1 ✓ (checking remaining bits...)`, '');
+      await sleep(400);
+    }
+
+    let resultHtml = '';
+    if (!allSet) {
+      resultHtml = `<div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.75rem">
+        <span style="font-family:var(--mono);font-size:1.1rem">"${key}"</span>
+        <span class="result-badge result-false">NOT IN SET</span>
+      </div>
+      <div style="font-size:0.85rem;color:var(--text-dim)">At least one bit was 0 → guaranteed not present. <b style="color:var(--success)">No false negatives possible.</b></div>`;
+    } else if (isActuallyPresent) {
+      resultHtml = `<div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.75rem">
+        <span style="font-family:var(--mono);font-size:1.1rem">"${key}"</span>
+        <span class="result-badge result-true">PROBABLY IN SET ✓</span>
+      </div>
+      <div style="font-size:0.85rem;color:var(--text-dim)">All ${k} bits are 1. Key was actually inserted → True Positive.</div>`;
+      setExplanation(`All bits set → "${key}" PROBABLY in set. (True positive — it was inserted.)`, 'success');
+    } else {
+      resultHtml = `<div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.75rem">
+        <span style="font-family:var(--mono);font-size:1.1rem">"${key}"</span>
+        <span class="result-badge result-fp">FALSE POSITIVE ⚠</span>
+      </div>
+      <div style="font-size:0.85rem;color:var(--accent4)">"${key}" was never inserted but all ${k} bits happen to be set by other keys! This is a <b>false positive</b>. Current FP rate ≈ ${(Math.pow(1 - Math.exp(-k * insertedKeys.length / m), k) * 100).toFixed(1)}%.</div>`;
+      setExplanation(`FALSE POSITIVE: "${key}" was not inserted but all bits are 1 due to collisions with other keys.`, 'warning');
+    }
+
+    document.getElementById('lookup-detail').innerHTML = resultHtml;
+    document.getElementById('lookup-result').style.display = '';
+
+    await sleep(200);
+    renderBits([]);
+    updateStats();
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  async function bulkInsert(keys) {
+    for (const k of keys) {
+      const hashes = getHashes(k, getK(), getM());
+      hashes.forEach(h => { bits[h] = 1; });
+      insertedKeys.push({ key: k, hashes });
+    }
+    renderBits([]);
+    renderKeyList();
+    updateStats();
+    setExplanation(`Inserted ${keys.length} keys. Check fill rate and false positive probability.`, 'success');
+  }
+
+  let inserting = false;
+  document.getElementById('btn-insert').addEventListener('click', async () => {
+    if (inserting) return;
+    const val = document.getElementById('insert-val').value.trim();
+    if (!val) return;
+    inserting = true;
+    await animateInsert(val);
+    document.getElementById('insert-val').value = '';
+    inserting = false;
+  });
+
+  document.getElementById('btn-lookup').addEventListener('click', async () => {
+    const val = document.getElementById('lookup-val').value.trim();
+    if (!val) return;
+    await animateLookup(val);
+  });
+
+  document.getElementById('btn-reset').addEventListener('click', reset);
+  document.getElementById('size-select').addEventListener('change', reset);
+  document.getElementById('k-select').addEventListener('change', reset);
+
+  document.getElementById('insert-val').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btn-insert').click();
+  });
+  document.getElementById('lookup-val').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btn-lookup').click();
+  });
+
+  reset();
+  </script>
+</body>
+</html>

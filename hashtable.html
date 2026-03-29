@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hash Tables – CS 527</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .slot-grid { display: grid; gap: 4px; padding: 1.5rem; }
+    .slot {
+      display: grid; grid-template-columns: 36px 1fr;
+      align-items: center; gap: 6px; min-height: 38px;
+    }
+    .slot-idx {
+      font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim);
+      text-align: right;
+    }
+    .slot-cell {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.4rem 0.75rem;
+      font-family: var(--mono); font-size: 0.85rem;
+      min-height: 36px; display: flex; align-items: center;
+      transition: all 0.3s; position: relative;
+    }
+    .slot-cell.occupied { background: #1a2440; border-color: var(--accent); color: var(--accent); }
+    .slot-cell.tombstone { background: #2a1a1a; border-color: #555; color: #666; font-style: italic; }
+    .slot-cell.active { border-color: var(--highlight); background: #2a2200; color: var(--highlight); box-shadow: 0 0 10px rgba(255,209,102,0.3); }
+    .slot-cell.probing { border-color: var(--accent3); background: #0d2a1a; color: var(--accent3); }
+    .slot-cell.found { border-color: var(--success); background: #0a2a1a; box-shadow: 0 0 10px rgba(67,217,173,0.3); }
+    .slot-cell.error { border-color: var(--danger); background: #2a0a0a; }
+
+    /* Chained hashing */
+    .chain-bucket { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .chain-node {
+      background: #1a2440; border: 1px solid var(--accent);
+      border-radius: 6px; padding: 0.3rem 0.6rem;
+      font-family: var(--mono); font-size: 0.85rem; color: var(--accent);
+      transition: all 0.3s;
+    }
+    .chain-node.active { border-color: var(--highlight); color: var(--highlight); background: #2a2200; }
+    .chain-arrow { color: var(--text-dim); font-size: 0.8rem; }
+
+    /* Extendible */
+    .ext-layout { display: grid; grid-template-columns: 120px 1fr; gap: 1rem; padding: 1.5rem; }
+    .dir-entry { display: flex; align-items: center; gap: 8px; padding: 0.35rem 0.5rem; border-radius: 6px; background: var(--surface2); border: 1px solid var(--border); margin-bottom: 4px; font-family: var(--mono); font-size: 0.82rem; }
+    .dir-entry .dir-bits { color: var(--accent4); min-width: 40px; }
+    .dir-entry .dir-ptr { color: var(--text-dim); font-size: 0.75rem; }
+    .bucket-box { background: #1a2440; border: 1px solid var(--accent); border-radius: 8px; padding: 0.6rem; margin-bottom: 6px; }
+    .bucket-label { font-size: 0.7rem; color: var(--text-dim); margin-bottom: 0.3rem; }
+    .bucket-keys { display: flex; gap: 4px; flex-wrap: wrap; }
+    .bucket-key { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 0.2rem 0.5rem; font-family: var(--mono); font-size: 0.82rem; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a class="nav-brand" href="index.html">CS 527</a>
+    <div class="nav-links">
+      <a class="nav-link" href="index.html">Home</a>
+      <a class="nav-link" href="btree.html">B+ Tree</a>
+      <a class="nav-link" href="bloom.html">Bloom Filter</a>
+      <a class="nav-link active" href="hashtable.html">Hash Tables</a>
+      <a class="nav-link" href="bufferpool.html">Buffer Pool</a>
+      <a class="nav-link" href="joins.html">Join Algorithms</a>
+      <a class="nav-link" href="sorting.html">External Sort</a>
+      <a class="nav-link" href="locking.html">2PL &amp; Locking</a>
+    </div>
+  </nav>
+
+  <div class="page">
+    <div class="page-header">
+      <div class="page-title">Hash Tables</div>
+      <div class="page-desc">Compare four collision-handling strategies: linear probing, chained hashing, cuckoo hashing, and extendible hashing.</div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('linear')">Linear Probe</div>
+      <div class="tab" onclick="switchTab('chained')">Chained</div>
+      <div class="tab" onclick="switchTab('cuckoo')">Cuckoo</div>
+      <div class="tab" onclick="switchTab('extendible')">Extendible</div>
+    </div>
+
+    <!-- Linear Probe -->
+    <div class="tab-panel active" id="panel-linear">
+      <div class="two-col">
+        <div>
+          <div class="viz-area">
+            <div style="padding:0.75rem 1.5rem; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+              <div class="legend">
+                <div class="legend-item"><div class="legend-dot" style="background:#1a2440;border:2px solid var(--accent)"></div> Occupied</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#2a1a1a;border:2px solid #555"></div> Tombstone</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#2a2200;border:2px solid var(--highlight)"></div> Active/Probing</div>
+              </div>
+              <div class="stats">
+                <div class="stat"><div class="stat-val" id="lp-n">0</div><div class="stat-lbl">Entries</div></div>
+                <div class="stat"><div class="stat-val" id="lp-load">0%</div><div class="stat-lbl">Load</div></div>
+                <div class="stat"><div class="stat-val" id="lp-probes">0</div><div class="stat-lbl">Probes</div></div>
+              </div>
+            </div>
+            <div class="slot-grid" id="lp-grid" style="grid-template-columns:1fr"></div>
+            <div style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+              <div class="explanation" id="lp-explanation">Linear probing: on collision, scan forward for the next empty slot. Deletions use tombstones.</div>
+            </div>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="card">
+            <div class="card-title">Configuration</div>
+            <div class="input-row"><label>Slots</label>
+              <select id="lp-size">
+                <option value="7">7</option>
+                <option value="11" selected>11</option>
+                <option value="13">13</option>
+              </select>
+            </div>
+            <button class="btn btn-ghost" style="width:100%;margin-top:0.75rem" id="lp-reset">Reset</button>
+          </div>
+          <div class="card">
+            <div class="card-title">Insert</div>
+            <div class="input-row">
+              <input type="number" id="lp-insert-val" placeholder="key (int)" min="1" max="999">
+              <button class="btn btn-primary" id="lp-btn-insert">Insert</button>
+            </div>
+            <div class="btn-group" style="margin-top:0.5rem">
+              <button class="btn btn-ghost btn-sm" onclick="lpBulk([5,10,15,22,3,17])">Demo</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Delete</div>
+            <div class="input-row">
+              <input type="number" id="lp-delete-val" placeholder="key">
+              <button class="btn btn-danger" id="lp-btn-delete">Delete</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Lookup</div>
+            <div class="input-row">
+              <input type="number" id="lp-search-val" placeholder="key">
+              <button class="btn btn-success" id="lp-btn-search">Search</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Algorithm</div>
+            <div style="font-size:0.8rem;color:var(--text-dim);line-height:1.9;font-family:var(--mono)">
+              hash(key) % N → slot i<br>
+              <b style="color:var(--accent)">Insert:</b> if slot[i] empty → put<br>
+              &nbsp;&nbsp;else probe i+1, i+2, ...<br>
+              <b style="color:var(--danger)">Delete:</b> find key, mark 🪦<br>
+              <b style="color:var(--success)">Lookup:</b> probe until found<br>
+              &nbsp;&nbsp;or empty (not tombstone)
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chained Hashing -->
+    <div class="tab-panel" id="panel-chained">
+      <div class="two-col">
+        <div>
+          <div class="viz-area">
+            <div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:0.85rem;color:var(--text-dim)">Each slot → linked list of entries</span>
+              <div class="stats">
+                <div class="stat"><div class="stat-val" id="ch-n">0</div><div class="stat-lbl">Entries</div></div>
+                <div class="stat"><div class="stat-val" id="ch-max">0</div><div class="stat-lbl">Max Chain</div></div>
+              </div>
+            </div>
+            <div class="slot-grid" id="ch-grid" style="grid-template-columns:1fr"></div>
+            <div style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+              <div class="explanation" id="ch-explanation">Chained hashing: each bucket holds a linked list. No load factor crisis—just longer chains.</div>
+            </div>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="card">
+            <div class="card-title">Configuration</div>
+            <div class="input-row"><label>Buckets</label>
+              <select id="ch-size">
+                <option value="5">5</option>
+                <option value="7" selected>7</option>
+                <option value="11">11</option>
+              </select>
+            </div>
+            <button class="btn btn-ghost" style="width:100%;margin-top:0.75rem" id="ch-reset">Reset</button>
+          </div>
+          <div class="card">
+            <div class="card-title">Insert</div>
+            <div class="input-row">
+              <input type="number" id="ch-insert-val" placeholder="key" min="1" max="999">
+              <button class="btn btn-primary" id="ch-btn-insert">Insert</button>
+            </div>
+            <div class="btn-group" style="margin-top:0.5rem">
+              <button class="btn btn-ghost btn-sm" onclick="chBulk([1,8,15,22,3,10,17,24,5,12])">Demo (10 keys)</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Delete / Lookup</div>
+            <div class="input-row">
+              <input type="number" id="ch-delete-val" placeholder="key">
+              <button class="btn btn-danger" id="ch-btn-delete">Delete</button>
+            </div>
+            <div class="input-row" style="margin-top:0.5rem">
+              <input type="number" id="ch-search-val" placeholder="key">
+              <button class="btn btn-success" id="ch-btn-search">Lookup</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Algorithm</div>
+            <div style="font-size:0.8rem;color:var(--text-dim);line-height:1.9;font-family:var(--mono)">
+              bucket = hash(key) % N<br>
+              <b style="color:var(--accent)">Insert:</b> append to bucket list<br>
+              <b style="color:var(--danger)">Delete:</b> unlink from list<br>
+              <b style="color:var(--success)">Lookup:</b> scan bucket list<br><br>
+              + No tombstones needed<br>
+              + Can grow indefinitely<br>
+              - Pointer overhead<br>
+              - Cache unfriendly
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cuckoo Hashing -->
+    <div class="tab-panel" id="panel-cuckoo">
+      <div class="two-col">
+        <div>
+          <div class="viz-area">
+            <div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:0.85rem;color:var(--text-dim)">Two tables, two hash functions — always O(1) lookup</span>
+              <div class="stats">
+                <div class="stat"><div class="stat-val" id="ck-n">0</div><div class="stat-lbl">Entries</div></div>
+                <div class="stat"><div class="stat-val" id="ck-evicts">0</div><div class="stat-lbl">Evictions</div></div>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;padding:1rem">
+              <div>
+                <div style="font-size:0.75rem;color:var(--accent);text-transform:uppercase;letter-spacing:.06em;margin-bottom:0.5rem;text-align:center">Table 1 (hash₁)</div>
+                <div class="slot-grid" id="ck-grid1" style="gap:3px"></div>
+              </div>
+              <div>
+                <div style="font-size:0.75rem;color:var(--accent3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:0.5rem;text-align:center">Table 2 (hash₂)</div>
+                <div class="slot-grid" id="ck-grid2" style="gap:3px"></div>
+              </div>
+            </div>
+            <div style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+              <div class="explanation" id="ck-explanation">Cuckoo hashing: two hash functions, two tables. Lookup is always exactly 2 probes. Insertions may evict existing keys.</div>
+            </div>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="card">
+            <div class="card-title">Configuration</div>
+            <div class="input-row"><label>Slots/Table</label>
+              <select id="ck-size">
+                <option value="5">5</option>
+                <option value="7" selected>7</option>
+                <option value="11">11</option>
+              </select>
+            </div>
+            <button class="btn btn-ghost" style="width:100%;margin-top:0.75rem" id="ck-reset">Reset</button>
+          </div>
+          <div class="card">
+            <div class="card-title">Insert</div>
+            <div class="input-row">
+              <input type="number" id="ck-insert-val" placeholder="key" min="1" max="999">
+              <button class="btn btn-primary" id="ck-btn-insert">Insert</button>
+            </div>
+            <div class="btn-group" style="margin-top:0.5rem">
+              <button class="btn btn-ghost btn-sm" onclick="ckBulk([3,7,11,15,2,6,10,14])">Demo</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Lookup</div>
+            <div class="input-row">
+              <input type="number" id="ck-search-val" placeholder="key">
+              <button class="btn btn-success" id="ck-btn-search">Lookup</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Algorithm</div>
+            <div style="font-size:0.8rem;color:var(--text-dim);line-height:1.9;font-family:var(--mono)">
+              <b style="color:var(--accent)">Insert(key):</b><br>
+              1. h1 = hash1(key) % N<br>
+              2. If T1[h1] empty → done<br>
+              3. Evict T1[h1] → x<br>
+              4. Try T2[hash2(x)]<br>
+              5. Repeat until empty or<br>
+              &nbsp;&nbsp;&nbsp;cycle detected → rehash<br><br>
+              <b style="color:var(--success)">Lookup:</b> Check T1[h1(k)]<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;AND T2[h2(k)]<br>
+              → Always exactly 2 probes!
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Extendible Hashing -->
+    <div class="tab-panel" id="panel-extendible">
+      <div class="two-col">
+        <div>
+          <div class="viz-area">
+            <div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:0.85rem;color:var(--text-dim)">Dynamic: double directory on overflow, split only the full bucket</span>
+              <div class="stats">
+                <div class="stat"><div class="stat-val" id="ext-global">1</div><div class="stat-lbl">Global Depth</div></div>
+                <div class="stat"><div class="stat-val" id="ext-n">0</div><div class="stat-lbl">Entries</div></div>
+                <div class="stat"><div class="stat-val" id="ext-buckets">2</div><div class="stat-lbl">Buckets</div></div>
+              </div>
+            </div>
+            <div class="ext-layout">
+              <div>
+                <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:0.5rem">Directory</div>
+                <div id="ext-dir"></div>
+              </div>
+              <div>
+                <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:0.5rem">Buckets</div>
+                <div id="ext-buckets-div"></div>
+              </div>
+            </div>
+            <div style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+              <div class="explanation" id="ext-explanation">Extendible hashing: directory doubles only when needed. Multiple directory entries can point to the same bucket.</div>
+            </div>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="card">
+            <div class="card-title">Configuration</div>
+            <div class="input-row"><label>Bucket cap</label>
+              <select id="ext-cap">
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="4">4</option>
+              </select>
+            </div>
+            <button class="btn btn-ghost" style="width:100%;margin-top:0.75rem" id="ext-reset">Reset</button>
+          </div>
+          <div class="card">
+            <div class="card-title">Insert</div>
+            <div class="input-row">
+              <input type="number" id="ext-insert-val" placeholder="key" min="1" max="255">
+              <button class="btn btn-primary" id="ext-btn-insert">Insert</button>
+            </div>
+            <div class="btn-group" style="margin-top:0.5rem">
+              <button class="btn btn-ghost btn-sm" onclick="extBulk([20,30,10,40,50,60,70,15,25])">Demo</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Algorithm</div>
+            <div style="font-size:0.8rem;color:var(--text-dim);line-height:1.9;font-family:var(--mono)">
+              Global depth = g<br>
+              Dir entry = low g bits of hash<br><br>
+              <b style="color:var(--accent)">Insert:</b><br>
+              1. Find bucket via low g bits<br>
+              2. If bucket not full → insert<br>
+              3. Else split bucket:<br>
+              &nbsp;&nbsp;a. If local=global: double dir<br>
+              &nbsp;&nbsp;b. Increment local depth<br>
+              &nbsp;&nbsp;c. Rehash bucket entries
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  // ============================================================
+  // Utilities
+  // ============================================================
+  function hash1(key, n) { return ((key * 2654435761) >>> 0) % n; }
+  function hash2(key, n) { return ((key * 2246822519) >>> 0) % n; }
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function setExpl(id, msg, type) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = 'explanation' + (type ? ' ' + type : '');
+  }
+
+  // ============================================================
+  // Tab switching
+  // ============================================================
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((t,i) => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    const tabs = ['linear','chained','cuckoo','extendible'];
+    document.querySelectorAll('.tab')[tabs.indexOf(name)].classList.add('active');
+    document.getElementById('panel-' + name).classList.add('active');
+  }
+
+  // ============================================================
+  // LINEAR PROBE
+  // ============================================================
+  let lpSize = 11, lpTable = [], lpProbes = 0;
+
+  function lpHash(key) { return key % lpSize; }
+
+  function lpReset() {
+    lpSize = parseInt(document.getElementById('lp-size').value);
+    lpTable = new Array(lpSize).fill(null); // null=empty, {key,val}=occupied, 'tomb'=tombstone
+    lpProbes = 0;
+    lpRender([]);
+    setExpl('lp-explanation', 'Linear probing: hash(key) % N. On collision, scan forward.', '');
+    document.getElementById('lp-probes').textContent = 0;
+  }
+
+  function lpRender(highlight) {
+    // highlight: [{idx, cls}]
+    const hlMap = {};
+    highlight.forEach(h => { hlMap[h.idx] = h.cls; });
+    let html = '';
+    lpTable.forEach((entry, i) => {
+      let cellCls = 'slot-cell';
+      if (hlMap[i]) cellCls += ' ' + hlMap[i];
+      else if (entry === 'tomb') cellCls += ' tombstone';
+      else if (entry !== null) cellCls += ' occupied';
+
+      const content = entry === 'tomb' ? '🪦 (deleted)' : entry ? `${entry.key} → ${entry.val}` : '';
+      html += `<div class="slot"><div class="slot-idx">${i}</div><div class="${cellCls}">${content}</div></div>`;
+    });
+    document.getElementById('lp-grid').innerHTML = html;
+    const n = lpTable.filter(e => e && e !== 'tomb').length;
+    document.getElementById('lp-n').textContent = n;
+    document.getElementById('lp-load').textContent = Math.round(n / lpSize * 100) + '%';
+    document.getElementById('lp-probes').textContent = lpProbes;
+  }
+
+  async function lpInsert(key) {
+    const val = `v${key}`;
+    let i = lpHash(key);
+    let probeCount = 0;
+    const visited = [];
+
+    while (lpTable[i] !== null && lpTable[i] !== 'tomb') {
+      if (lpTable[i].key === key) {
+        setExpl('lp-explanation', `Key ${key} already exists at slot ${i}.`, 'warning');
+        return;
+      }
+      visited.push({ idx: i, cls: 'probing' });
+      lpRender([...visited, { idx: (i + 1) % lpSize, cls: 'active' }]);
+      setExpl('lp-explanation', `Slot ${i} occupied. Probing next slot...`, '');
+      await sleep(400);
+      i = (i + 1) % lpSize;
+      probeCount++;
+      if (probeCount >= lpSize) {
+        setExpl('lp-explanation', `Table is full! Cannot insert ${key}.`, 'danger');
+        return;
+      }
+    }
+    lpProbes += probeCount + 1;
+    lpTable[i] = { key, val };
+    lpRender([{ idx: i, cls: 'found' }]);
+    setExpl('lp-explanation', `Inserted ${key} at slot ${i} after ${probeCount} collision(s).`, 'success');
+  }
+
+  async function lpDelete(key) {
+    let i = lpHash(key);
+    let probeCount = 0;
+    while (lpTable[i] !== null) {
+      if (lpTable[i] !== 'tomb' && lpTable[i].key === key) {
+        lpTable[i] = 'tomb';
+        lpRender([{ idx: i, cls: 'error' }]);
+        setExpl('lp-explanation', `Deleted ${key} at slot ${i}. Tombstone placed to preserve probe chains.`, 'warning');
+        return;
+      }
+      i = (i + 1) % lpSize;
+      probeCount++;
+      if (probeCount >= lpSize) break;
+    }
+    setExpl('lp-explanation', `Key ${key} not found.`, 'danger');
+  }
+
+  async function lpSearch(key) {
+    let i = lpHash(key);
+    const visited = [];
+    while (lpTable[i] !== null) {
+      if (lpTable[i] !== 'tomb' && lpTable[i].key === key) {
+        lpRender([...visited, { idx: i, cls: 'found' }]);
+        setExpl('lp-explanation', `Found ${key} at slot ${i}!`, 'success');
+        return;
+      }
+      visited.push({ idx: i, cls: 'probing' });
+      lpRender([...visited]);
+      await sleep(350);
+      i = (i + 1) % lpSize;
+      if (i === lpHash(key)) break;
+    }
+    setExpl('lp-explanation', `Key ${key} not found (hit empty slot or full scan).`, 'danger');
+  }
+
+  async function lpBulk(keys) { for (const k of keys) { lpTable[lpHash(k)] === undefined; await lpInsert(k); await sleep(100); } }
+
+  document.getElementById('lp-reset').addEventListener('click', lpReset);
+  document.getElementById('lp-btn-insert').addEventListener('click', () => { const v = parseInt(document.getElementById('lp-insert-val').value); if (!isNaN(v)) { lpInsert(v); document.getElementById('lp-insert-val').value=''; }});
+  document.getElementById('lp-btn-delete').addEventListener('click', () => { const v = parseInt(document.getElementById('lp-delete-val').value); if (!isNaN(v)) lpDelete(v); });
+  document.getElementById('lp-btn-search').addEventListener('click', () => { const v = parseInt(document.getElementById('lp-search-val').value); if (!isNaN(v)) lpSearch(v); });
+  document.getElementById('lp-size').addEventListener('change', lpReset);
+
+  // ============================================================
+  // CHAINED HASHING
+  // ============================================================
+  let chSize = 7, chBuckets = [];
+
+  function chHash(key) { return key % chSize; }
+
+  function chReset() {
+    chSize = parseInt(document.getElementById('ch-size').value);
+    chBuckets = Array.from({length: chSize}, () => []);
+    chRender([]);
+    setExpl('ch-explanation', 'Chained hashing: each bucket holds a linked list of entries.', '');
+  }
+
+  function chRender(highlight) {
+    const hlMap = {};
+    highlight.forEach(h => { hlMap[h.bucket] = h; });
+
+    let html = '';
+    chBuckets.forEach((bucket, i) => {
+      const hl = hlMap[i];
+      html += `<div class="slot">
+        <div class="slot-idx">${i}</div>
+        <div class="slot-cell ${bucket.length ? 'occupied' : ''} ${hl ? (hl.cls || 'active') : ''}">
+          <div class="chain-bucket">
+            ${bucket.length ? bucket.map((k, ki) => `<span class="chain-node ${hl && hl.keyIdx === ki ? 'active' : ''}">${k}</span>${ki < bucket.length-1 ? '<span class="chain-arrow">→</span>' : ''}`).join('') : '<span style="color:var(--text-dim);font-size:0.8rem">empty</span>'}
+          </div>
+        </div>
+      </div>`;
+    });
+    document.getElementById('ch-grid').innerHTML = html;
+    const n = chBuckets.reduce((s,b) => s + b.length, 0);
+    const maxChain = Math.max(...chBuckets.map(b => b.length), 0);
+    document.getElementById('ch-n').textContent = n;
+    document.getElementById('ch-max').textContent = maxChain;
+  }
+
+  async function chInsert(key) {
+    const bucket = chHash(key);
+    if (chBuckets[bucket].includes(key)) { setExpl('ch-explanation', `Key ${key} already in bucket ${bucket}.`, 'warning'); return; }
+    chRender([{ bucket, cls: 'active' }]);
+    setExpl('ch-explanation', `hash(${key}) = ${bucket}: appending to bucket ${bucket}'s list.`, '');
+    await sleep(400);
+    chBuckets[bucket].push(key);
+    chRender([{ bucket, cls: 'found', keyIdx: chBuckets[bucket].length - 1 }]);
+    setExpl('ch-explanation', `Inserted ${key} into bucket ${bucket} (chain length: ${chBuckets[bucket].length}).`, 'success');
+  }
+
+  async function chDelete(key) {
+    const bucket = chHash(key);
+    const idx = chBuckets[bucket].indexOf(key);
+    if (idx === -1) { setExpl('ch-explanation', `Key ${key} not found.`, 'danger'); return; }
+    chRender([{ bucket, cls: 'active', keyIdx: idx }]);
+    await sleep(400);
+    chBuckets[bucket].splice(idx, 1);
+    chRender([{ bucket, cls: 'error' }]);
+    setExpl('ch-explanation', `Deleted ${key} from bucket ${bucket}.`, 'warning');
+  }
+
+  async function chSearch(key) {
+    const bucket = chHash(key);
+    for (let i = 0; i < chBuckets[bucket].length; i++) {
+      chRender([{ bucket, cls: 'probing', keyIdx: i }]);
+      setExpl('ch-explanation', `Scanning bucket ${bucket}: checking position ${i}...`, '');
+      await sleep(350);
+      if (chBuckets[bucket][i] === key) {
+        chRender([{ bucket, cls: 'found', keyIdx: i }]);
+        setExpl('ch-explanation', `Found ${key} in bucket ${bucket} at position ${i}!`, 'success');
+        return;
+      }
+    }
+    chRender([{ bucket, cls: 'error' }]);
+    setExpl('ch-explanation', `Key ${key} not found in bucket ${bucket}.`, 'danger');
+  }
+
+  async function chBulk(keys) { for (const k of keys) { await chInsert(k); await sleep(100); } }
+
+  document.getElementById('ch-reset').addEventListener('click', chReset);
+  document.getElementById('ch-btn-insert').addEventListener('click', () => { const v = parseInt(document.getElementById('ch-insert-val').value); if (!isNaN(v)) { chInsert(v); document.getElementById('ch-insert-val').value=''; }});
+  document.getElementById('ch-btn-delete').addEventListener('click', () => { const v = parseInt(document.getElementById('ch-delete-val').value); if (!isNaN(v)) chDelete(v); });
+  document.getElementById('ch-btn-search').addEventListener('click', () => { const v = parseInt(document.getElementById('ch-search-val').value); if (!isNaN(v)) chSearch(v); });
+  document.getElementById('ch-size').addEventListener('change', chReset);
+
+  // ============================================================
+  // CUCKOO HASHING
+  // ============================================================
+  let ckSize = 7, ckT1 = [], ckT2 = [], ckEvictions = 0;
+
+  function ckReset() {
+    ckSize = parseInt(document.getElementById('ck-size').value);
+    ckT1 = new Array(ckSize).fill(null);
+    ckT2 = new Array(ckSize).fill(null);
+    ckEvictions = 0;
+    ckRender([],[]);
+    setExpl('ck-explanation', 'Cuckoo hashing: two tables, two hash functions. Lookup always checks exactly 2 slots.', '');
+    document.getElementById('ck-evicts').textContent = 0;
+  }
+
+  function ckRender(hl1, hl2) {
+    const m1 = {}, m2 = {};
+    hl1.forEach(h => m1[h.idx] = h.cls);
+    hl2.forEach(h => m2[h.idx] = h.cls);
+    function renderTable(table, map, gridId) {
+      let html = '';
+      table.forEach((entry, i) => {
+        let cls = 'slot-cell';
+        if (map[i]) cls += ' ' + map[i];
+        else if (entry !== null) cls += ' occupied';
+        html += `<div class="slot"><div class="slot-idx">${i}</div><div class="${cls}">${entry !== null ? entry : ''}</div></div>`;
+      });
+      document.getElementById(gridId).innerHTML = html;
+    }
+    renderTable(ckT1, m1, 'ck-grid1');
+    renderTable(ckT2, m2, 'ck-grid2');
+    const n = ckT1.filter(e=>e!==null).length + ckT2.filter(e=>e!==null).length;
+    document.getElementById('ck-n').textContent = n;
+    document.getElementById('ck-evicts').textContent = ckEvictions;
+  }
+
+  async function ckInsert(key) {
+    const MAX_EVICT = 10;
+    let cur = key, table = 1, iter = 0;
+
+    while (iter++ < MAX_EVICT) {
+      if (table === 1) {
+        const i = hash1(cur, ckSize);
+        ckRender([{ idx: i, cls: 'active' }], []);
+        setExpl('ck-explanation', `Table1[hash1(${cur})=${i}]: ${ckT1[i] === null ? 'empty → insert here' : 'occupied by ' + ckT1[i] + ', evict it'}`, '');
+        await sleep(500);
+        if (ckT1[i] === null) { ckT1[i] = cur; ckRender([{idx:i,cls:'found'}],[]); setExpl('ck-explanation',`Inserted ${key}. Done!`,'success'); return; }
+        const evicted = ckT1[i]; ckT1[i] = cur; ckEvictions++;
+        cur = evicted; table = 2;
+      } else {
+        const i = hash2(cur, ckSize);
+        ckRender([], [{ idx: i, cls: 'active' }]);
+        setExpl('ck-explanation', `Table2[hash2(${cur})=${i}]: ${ckT2[i] === null ? 'empty → insert here' : 'occupied by ' + ckT2[i] + ', evict it'}`, '');
+        await sleep(500);
+        if (ckT2[i] === null) { ckT2[i] = cur; ckRender([],[{idx:i,cls:'found'}]); setExpl('ck-explanation',`Inserted ${key}. Done!`,'success'); return; }
+        const evicted = ckT2[i]; ckT2[i] = cur; ckEvictions++;
+        cur = evicted; table = 1;
+      }
+    }
+    setExpl('ck-explanation', `Cycle detected after ${MAX_EVICT} evictions! Would need to rehash.`, 'danger');
+    ckRender([],[]);
+  }
+
+  async function ckSearch(key) {
+    const i1 = hash1(key, ckSize), i2 = hash2(key, ckSize);
+    ckRender([{idx:i1,cls:'probing'}],[{idx:i2,cls:'probing'}]);
+    setExpl('ck-explanation',`Checking T1[${i1}] and T2[${i2}]...`,'');
+    await sleep(400);
+    if (ckT1[i1] === key) { ckRender([{idx:i1,cls:'found'}],[]); setExpl('ck-explanation',`Found ${key} in Table 1 at slot ${i1}!`,'success'); return; }
+    if (ckT2[i2] === key) { ckRender([],[{idx:i2,cls:'found'}]); setExpl('ck-explanation',`Found ${key} in Table 2 at slot ${i2}!`,'success'); return; }
+    setExpl('ck-explanation',`Key ${key} not found (checked exactly 2 slots).`,'danger');
+    ckRender([],[]);
+  }
+
+  async function ckBulk(keys) { for (const k of keys) { await ckInsert(k); await sleep(100); } }
+
+  document.getElementById('ck-reset').addEventListener('click', ckReset);
+  document.getElementById('ck-btn-insert').addEventListener('click', () => { const v=parseInt(document.getElementById('ck-insert-val').value); if(!isNaN(v)){ckInsert(v);document.getElementById('ck-insert-val').value='';}});
+  document.getElementById('ck-btn-search').addEventListener('click', () => { const v=parseInt(document.getElementById('ck-search-val').value); if(!isNaN(v))ckSearch(v); });
+  document.getElementById('ck-size').addEventListener('change', ckReset);
+
+  // ============================================================
+  // EXTENDIBLE HASHING
+  // ============================================================
+  let extCap = 3, extGlobal = 1, extDir = [], extBucketList = [];
+
+  function extHash(key) { return key & 0xff; } // use low 8 bits
+
+  function extGetBucket(key) {
+    const mask = (1 << extGlobal) - 1;
+    const idx = extHash(key) & mask;
+    return extDir[idx];
+  }
+
+  function extReset() {
+    extCap = parseInt(document.getElementById('ext-cap').value);
+    extGlobal = 1;
+    extBucketList = [
+      { id: 0, localDepth: 1, keys: [] },
+      { id: 1, localDepth: 1, keys: [] }
+    ];
+    extDir = [0, 1]; // dir[0] → bucket 0, dir[1] → bucket 1
+    extRender();
+    setExpl('ext-explanation','Extendible hashing: directory entries = low g bits of hash. Multiple entries can share a bucket.','');
+  }
+
+  function extRender(hlBucket = -1) {
+    const mask = (1 << extGlobal) - 1;
+    // Directory
+    let dirHtml = '';
+    extDir.forEach((bIdx, i) => {
+      const bits = i.toString(2).padStart(extGlobal, '0');
+      dirHtml += `<div class="dir-entry ${bIdx === hlBucket ? 'active' : ''}">
+        <span class="dir-bits">${bits}</span>
+        <span style="color:var(--text-dim);font-size:0.75rem">→</span>
+        <span class="dir-ptr">B${bIdx}</span>
+      </div>`;
+    });
+    document.getElementById('ext-dir').innerHTML = dirHtml;
+
+    // Buckets (unique only)
+    const seen = new Set();
+    let buckHtml = '';
+    extBucketList.forEach((b, i) => {
+      buckHtml += `<div class="bucket-box ${i === hlBucket ? 'active-hl' : ''}" style="${i === hlBucket ? 'border-color:var(--highlight)' : ''}">
+        <div class="bucket-label">Bucket B${i} (local depth=${b.localDepth})</div>
+        <div class="bucket-keys">
+          ${b.keys.map(k => `<span class="bucket-key">${k}</span>`).join('')}
+          ${b.keys.length === 0 ? '<span style="color:var(--text-dim);font-size:0.8rem">empty</span>' : ''}
+        </div>
+      </div>`;
+    });
+    document.getElementById('ext-buckets-div').innerHTML = buckHtml;
+
+    document.getElementById('ext-global').textContent = extGlobal;
+    document.getElementById('ext-n').textContent = extBucketList.reduce((s,b)=>s+b.keys.length,0);
+    document.getElementById('ext-buckets').textContent = extBucketList.length;
+  }
+
+  async function extInsert(key) {
+    const mask = (1 << extGlobal) - 1;
+    const dirIdx = extHash(key) & mask;
+    const bIdx = extDir[dirIdx];
+    const bucket = extBucketList[bIdx];
+
+    extRender(bIdx);
+    setExpl('ext-explanation',`hash(${key}) & mask(${extGlobal}bit) = ${dirIdx} → Bucket B${bIdx} (local depth ${bucket.localDepth}, ${bucket.keys.length}/${extCap} keys)`,'');
+    await sleep(400);
+
+    if (bucket.keys.includes(key)) { setExpl('ext-explanation',`Key ${key} already in bucket.`,'warning'); return; }
+
+    if (bucket.keys.length < extCap) {
+      bucket.keys.push(key);
+      extRender(bIdx);
+      setExpl('ext-explanation',`Inserted ${key} into Bucket B${bIdx}. Done!`,'success');
+      return;
+    }
+
+    // Overflow: split
+    setExpl('ext-explanation',`Bucket B${bIdx} is full! Splitting...`,'warning');
+    await sleep(500);
+
+    if (bucket.localDepth === extGlobal) {
+      // Double directory
+      extGlobal++;
+      const newLen = 1 << extGlobal;
+      const newDir = new Array(newLen);
+      for (let i = 0; i < newLen; i++) {
+        newDir[i] = extDir[i >> 1]; // map old dir[i>>1] to new dir[i]
+      }
+      extDir = newDir;
+      setExpl('ext-explanation',`Local depth = global depth. Doubling directory (global depth ${extGlobal-1}→${extGlobal})...`,'warning');
+      await sleep(500);
+    }
+
+    // Create new bucket
+    const newBIdx = extBucketList.length;
+    const newBucket = { id: newBIdx, localDepth: bucket.localDepth + 1, keys: [] };
+    bucket.localDepth++;
+    extBucketList.push(newBucket);
+
+    // Redistribute dir pointers
+    const newMask = (1 << extGlobal) - 1;
+    const oldPrefix = dirIdx & ((1 << (bucket.localDepth - 1)) - 1);
+    for (let i = 0; i <= newMask; i++) {
+      if ((i & ((1 << bucket.localDepth) - 1)) === (oldPrefix | (1 << (bucket.localDepth - 1)))) {
+        extDir[i] = newBIdx;
+      }
+    }
+
+    // Rehash existing + new key
+    const toRehash = [...bucket.keys, key];
+    bucket.keys = [];
+    const newMaskL = (1 << extGlobal) - 1;
+    toRehash.forEach(k => {
+      const di = extHash(k) & newMaskL;
+      const tgt = extBucketList[extDir[di]];
+      tgt.keys.push(k);
+    });
+
+    extRender(bIdx);
+    setExpl('ext-explanation',`Split done! Keys redistributed. New global depth: ${extGlobal}.`,'success');
+  }
+
+  async function extBulk(keys) { for (const k of keys) { await extInsert(k); await sleep(150); } }
+
+  document.getElementById('ext-reset').addEventListener('click', extReset);
+  document.getElementById('ext-btn-insert').addEventListener('click', () => { const v=parseInt(document.getElementById('ext-insert-val').value); if(!isNaN(v)){extInsert(v);document.getElementById('ext-insert-val').value='';}});
+  document.getElementById('ext-cap').addEventListener('change', extReset);
+
+  // Init
+  lpReset(); chReset(); ckReset(); extReset();
+  </script>
+</body>
+</html>

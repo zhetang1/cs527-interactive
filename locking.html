@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2PL &amp; Locking – CS 527</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .txn-grid { display: grid; gap: 1rem; }
+    .txn-col { display: flex; flex-direction: column; }
+    .txn-header {
+      text-align: center; font-size: 0.8rem; font-weight: 700;
+      padding: 0.5rem; border-radius: 6px 6px 0 0; margin-bottom: 2px;
+    }
+    .txn-t1 { background: rgba(108,99,255,0.2); color: var(--accent); }
+    .txn-t2 { background: rgba(67,217,173,0.2); color: var(--accent3); }
+    .txn-t3 { background: rgba(255,209,102,0.2); color: var(--accent4); }
+
+    .op-row {
+      display: flex; gap: 6px; align-items: center;
+      padding: 0.4rem 0.6rem; border-radius: 6px;
+      font-family: var(--mono); font-size: 0.82rem;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      margin-bottom: 3px; transition: all 0.3s;
+    }
+    .op-row.executing { border-color: var(--highlight); background: #2a2200; }
+    .op-row.done { border-color: var(--border); background: var(--surface2); opacity: 0.6; }
+    .op-row.blocked { border-color: var(--danger); background: #2a0a0a; }
+    .op-row.committed { border-color: var(--success); background: #0d2a1a; }
+    .op-row.aborted { border-color: var(--danger); background: #2a0a0a; opacity: 0.7; }
+    .op-keyword { color: var(--accent4); font-weight: 700; }
+    .op-obj { color: var(--accent3); }
+    .op-lock { font-size: 0.7rem; padding: 0.1rem 0.3rem; border-radius: 3px; }
+    .s-lock { background: rgba(108,99,255,0.2); color: var(--accent); border: 1px solid var(--accent); }
+    .x-lock { background: rgba(255,101,132,0.2); color: var(--danger); border: 1px solid var(--danger); }
+    .denied { background: rgba(255,101,132,0.15); color: var(--danger); border: 1px solid var(--danger); }
+
+    .lock-table { display: flex; flex-direction: column; gap: 4px; }
+    .lock-entry {
+      display: grid; grid-template-columns: 60px 1fr 1fr;
+      gap: 8px; align-items: center;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.4rem 0.75rem;
+      font-family: var(--mono); font-size: 0.82rem;
+    }
+    .lock-obj { color: var(--accent4); font-weight: 700; }
+    .lock-holder { display: flex; gap: 4px; flex-wrap: wrap; }
+    .lock-waiter { display: flex; gap: 4px; flex-wrap: wrap; }
+    .lock-badge {
+      padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.75rem;
+    }
+    .t1-badge { background: rgba(108,99,255,0.2); color: var(--accent); }
+    .t2-badge { background: rgba(67,217,173,0.2); color: var(--accent3); }
+    .t3-badge { background: rgba(255,209,102,0.2); color: var(--accent4); }
+
+    .compat-matrix { border-collapse: collapse; }
+    .compat-matrix td, .compat-matrix th { padding: 0.4rem 0.75rem; text-align: center; font-family: var(--mono); font-size: 0.85rem; border: 1px solid var(--border); }
+    .compat-matrix th { background: var(--surface2); color: var(--text-dim); }
+    .yes { color: var(--success); font-weight: 700; }
+    .no { color: var(--danger); font-weight: 700; }
+
+    .waits-for { display: flex; flex-direction: column; gap: 6px; font-family: var(--mono); font-size: 0.85rem; }
+    .wf-edge { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.6rem; background: var(--surface2); border-radius: 6px; border: 1px solid var(--border); }
+    .wf-edge.cycle { border-color: var(--danger); background: #2a0a0a; animation: pulse 1s infinite; }
+
+    .timeline { display: grid; }
+    .tl-row { display: grid; align-items: center; gap: 4px; margin-bottom: 2px; }
+    .tl-cell {
+      height: 32px; border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem; font-family: var(--mono);
+      transition: all 0.3s;
+    }
+    .tl-empty { background: transparent; }
+    .tl-read { background: rgba(108,99,255,0.2); border: 1px solid var(--accent); color: var(--accent); }
+    .tl-write { background: rgba(255,101,132,0.2); border: 1px solid var(--danger); color: var(--danger); }
+    .tl-commit { background: rgba(67,217,173,0.2); border: 1px solid var(--success); color: var(--success); }
+    .tl-lock { background: rgba(255,209,102,0.1); border: 1px solid var(--accent4); color: var(--accent4); }
+    .tl-blocked { background: rgba(255,101,132,0.1); border: 1px dashed var(--danger); color: var(--danger); }
+    .tl-active { box-shadow: 0 0 8px rgba(255,209,102,0.4); border-color: var(--highlight) !important; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a class="nav-brand" href="index.html">CS 527</a>
+    <div class="nav-links">
+      <a class="nav-link" href="index.html">Home</a>
+      <a class="nav-link" href="btree.html">B+ Tree</a>
+      <a class="nav-link" href="bloom.html">Bloom Filter</a>
+      <a class="nav-link" href="hashtable.html">Hash Tables</a>
+      <a class="nav-link" href="bufferpool.html">Buffer Pool</a>
+      <a class="nav-link" href="joins.html">Join Algorithms</a>
+      <a class="nav-link" href="sorting.html">External Sort</a>
+      <a class="nav-link active" href="locking.html">2PL &amp; Locking</a>
+    </div>
+  </nav>
+
+  <div class="page">
+    <div class="page-header">
+      <div class="page-title">Two-Phase Locking &amp; Concurrency</div>
+      <div class="page-desc">2PL guarantees conflict-serializable schedules. Growing phase: acquire locks. Shrinking phase: release locks. No lock acquisition after first release.</div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('simulator')">Schedule Simulator</div>
+      <div class="tab" onclick="switchTab('compat')">Lock Compatibility</div>
+      <div class="tab" onclick="switchTab('deadlock')">Deadlock Detection</div>
+    </div>
+
+    <!-- Simulator -->
+    <div class="tab-panel active" id="panel-simulator">
+      <div class="two-col">
+        <div>
+          <div class="viz-area">
+            <div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+              <div class="legend">
+                <div class="legend-item"><span class="op-lock s-lock">S</span> Shared (read)</div>
+                <div class="legend-item"><span class="op-lock x-lock">X</span> Exclusive (write)</div>
+                <div class="legend-item"><span class="op-lock denied">⊗</span> Denied</div>
+              </div>
+              <div style="font-size:0.8rem;color:var(--text-dim)" id="sim-clock">t = 0</div>
+            </div>
+
+            <!-- Schedule -->
+            <div style="padding:1rem 1.5rem" id="schedule-area">
+              <div id="txn-cols"></div>
+            </div>
+
+            <div style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+              <div class="explanation" id="sim-explanation">Select a schedule and step through it to see 2PL in action.</div>
+            </div>
+          </div>
+
+          <!-- Lock table -->
+          <div class="card" style="margin-top:1rem">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+              <div class="card-title" style="margin:0">Lock Manager Table</div>
+              <div style="font-size:0.75rem;color:var(--text-dim)">Granted locks / Waiting</div>
+            </div>
+            <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:0.5rem;font-family:var(--mono)">Object → [holders] / [waiters]</div>
+            <div class="lock-table" id="lock-table">
+              <div style="color:var(--text-dim);font-size:0.8rem;text-align:center;padding:0.5rem">No locks held</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <div class="card">
+            <div class="card-title">Schedule</div>
+            <select id="schedule-select" style="width:100%">
+              <option value="0">Basic Read Conflict</option>
+              <option value="1">Write-Write Conflict</option>
+              <option value="2">2PL Serializable</option>
+              <option value="3">Deadlock Scenario</option>
+            </select>
+            <div class="btn-group" style="margin-top:0.75rem">
+              <button class="btn btn-ghost" id="sim-reset">Reset</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Step Controls</div>
+            <div class="step-controls">
+              <button class="btn btn-ghost btn-sm" id="sim-prev">← Prev</button>
+              <div class="step-info" id="sim-step-info">t = 0</div>
+              <button class="btn btn-ghost btn-sm" id="sim-next">Next →</button>
+            </div>
+            <div style="margin-top:0.75rem">
+              <button class="btn btn-primary" id="sim-play" style="width:100%">▶ Auto Play</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">2PL Rules</div>
+            <div style="font-size:0.82rem;color:var(--text-dim);line-height:2">
+              <b style="color:var(--accent)">Growing Phase:</b><br>
+              • Acquire any lock<br>
+              • Cannot release yet<br><br>
+              <b style="color:var(--accent3)">Shrinking Phase:</b><br>
+              • Release locks<br>
+              • Cannot acquire new locks<br><br>
+              <b style="color:var(--success)">Strict 2PL:</b><br>
+              • Hold ALL locks until<br>
+              &nbsp;&nbsp;commit/abort<br>
+              • Prevents cascading aborts
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Compatibility Matrix</div>
+            <table class="compat-matrix">
+              <tr><th>Req\Held</th><th>S-LOCK</th><th>X-LOCK</th><th>none</th></tr>
+              <tr><td>S-LOCK</td><td class="yes">✓</td><td class="no">✗</td><td class="yes">✓</td></tr>
+              <tr><td>X-LOCK</td><td class="no">✗</td><td class="no">✗</td><td class="yes">✓</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lock Compatibility -->
+    <div class="tab-panel" id="panel-compat">
+      <div class="two-col">
+        <div>
+          <div class="viz-area" style="padding:1.5rem">
+            <div class="card-title">Lock Compatibility Demonstrator</div>
+            <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:1.5rem">Multiple transactions can hold S-locks simultaneously. An X-lock requires exclusive access.</p>
+
+            <div id="compat-demo" style="display:flex;flex-direction:column;gap:1rem">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+                <div class="card">
+                  <div class="card-title">Transaction T1</div>
+                  <div class="btn-group">
+                    <button class="btn btn-ghost btn-sm" onclick="compatRequest('T1','A','S')">S-Lock(A)</button>
+                    <button class="btn btn-ghost btn-sm" onclick="compatRequest('T1','A','X')">X-Lock(A)</button>
+                    <button class="btn btn-danger btn-sm" onclick="compatRelease('T1','A')">Release(A)</button>
+                  </div>
+                  <div class="btn-group" style="margin-top:0.5rem">
+                    <button class="btn btn-ghost btn-sm" onclick="compatRequest('T1','B','S')">S-Lock(B)</button>
+                    <button class="btn btn-ghost btn-sm" onclick="compatRequest('T1','B','X')">X-Lock(B)</button>
+                    <button class="btn btn-danger btn-sm" onclick="compatRelease('T1','B')">Release(B)</button>
+                  </div>
+                </div>
+                <div class="card">
+                  <div class="card-title">Transaction T2</div>
+                  <div class="btn-group">
+                    <button class="btn btn-ghost btn-sm" onclick="compatRequest('T2','A','S')">S-Lock(A)</button>
+                    <button class="btn btn-ghost btn-sm" onclick="compatRequest('T2','A','X')">X-Lock(A)</button>
+                    <button class="btn btn-danger btn-sm" onclick="compatRelease('T2','A')">Release(A)</button>
+                  </div>
+                  <div class="btn-group" style="margin-top:0.5rem">
+                    <button class="btn btn-ghost btn-sm" onclick="compatRequest('T2','B','S')">S-Lock(B)</button>
+                    <button class="btn btn-ghost btn-sm" onclick="compatRequest('T2','B','X')">X-Lock(B)</button>
+                    <button class="btn btn-danger btn-sm" onclick="compatRelease('T2','B')">Release(B)</button>
+                  </div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-title">Lock State</div>
+                <div class="lock-table" id="compat-lock-table">
+                  <div style="color:var(--text-dim);font-size:0.8rem;text-align:center;padding:0.5rem">No locks held</div>
+                </div>
+              </div>
+              <div class="explanation" id="compat-explanation">Click buttons to request/release locks on objects A and B.</div>
+            </div>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="card">
+            <button class="btn btn-ghost" style="width:100%" onclick="compatReset()">Reset All Locks</button>
+          </div>
+          <div class="card">
+            <div class="card-title">Rules</div>
+            <div style="font-size:0.82rem;color:var(--text-dim);line-height:1.9">
+              <b style="color:var(--success)">S + S:</b> Both granted ✓<br>
+              <b style="color:var(--danger)">S + X:</b> X must wait ✗<br>
+              <b style="color:var(--danger)">X + S:</b> S must wait ✗<br>
+              <b style="color:var(--danger)">X + X:</b> Second must wait ✗<br><br>
+              Shared = read-only<br>
+              Exclusive = read + write<br><br>
+              Upgrade: S → X only if<br>
+              you are the sole S-holder
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Deadlock -->
+    <div class="tab-panel" id="panel-deadlock">
+      <div class="two-col">
+        <div>
+          <div class="viz-area">
+            <div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border)">
+              <div style="font-size:0.85rem;color:var(--text-dim)">Build a waits-for graph. A cycle = deadlock.</div>
+            </div>
+            <div style="padding:1.5rem;display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
+              <div>
+                <div class="card-title">Lock State</div>
+                <div class="lock-table" id="dl-lock-table">
+                  <div style="color:var(--text-dim);font-size:0.8rem;text-align:center;padding:0.5rem">No locks</div>
+                </div>
+                <div style="margin-top:1rem">
+                  <div class="card-title">Waits-For Graph</div>
+                  <div class="waits-for" id="waits-for-graph">
+                    <div style="color:var(--text-dim);font-size:0.8rem">No waits</div>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <svg id="dl-svg" width="100%" height="300" style="background:var(--surface2);border-radius:8px;border:1px solid var(--border)"></svg>
+              </div>
+            </div>
+            <div style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+              <div class="explanation" id="dl-explanation">Run a scenario to see how deadlocks form and how they are detected.</div>
+            </div>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="card">
+            <div class="card-title">Deadlock Scenarios</div>
+            <div class="btn-group">
+              <button class="btn btn-primary" onclick="runDeadlock('t2')">2-Transaction</button>
+              <button class="btn btn-primary" onclick="runDeadlock('t3')">3-Transaction</button>
+            </div>
+            <button class="btn btn-danger" style="width:100%;margin-top:0.75rem" onclick="detectDeadlock()">Detect &amp; Abort Victim</button>
+            <button class="btn btn-ghost" style="width:100%;margin-top:0.5rem" onclick="dlReset()">Reset</button>
+          </div>
+          <div class="card">
+            <div class="card-title">Detection Methods</div>
+            <div style="font-size:0.82rem;color:var(--text-dim);line-height:1.9">
+              <b style="color:var(--accent)">Waits-For Graph:</b><br>
+              Build directed graph: Ti→Tj if Ti waits for Tj to release a lock.<br>
+              Deadlock ↔ cycle in graph.<br><br>
+              <b style="color:var(--accent3)">Resolution:</b><br>
+              • Abort youngest txn (victim)<br>
+              • Or use timeouts<br><br>
+              <b style="color:var(--accent4)">Prevention:</b><br>
+              • Wait-Die: older waits, younger dies<br>
+              • Wound-Wait: older wounds younger
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  // ============================================================
+  // SCHEDULE SIMULATOR
+  // ============================================================
+  const SCHEDULES = [
+    { name: 'Basic Read Conflict', ops: [
+      {t:0,txn:0,type:'R',obj:'A'}, {t:1,txn:1,type:'R',obj:'A'},
+      {t:2,txn:0,type:'W',obj:'A'}, {t:3,txn:1,type:'R',obj:'A'},
+      {t:4,txn:0,type:'C',obj:null}, {t:5,txn:1,type:'C',obj:null}
+    ]},
+    { name: 'Write-Write Conflict', ops: [
+      {t:0,txn:0,type:'W',obj:'A'}, {t:1,txn:1,type:'W',obj:'A'},
+      {t:2,txn:0,type:'W',obj:'B'}, {t:3,txn:1,type:'W',obj:'B'},
+      {t:4,txn:0,type:'C',obj:null}, {t:5,txn:1,type:'C',obj:null}
+    ]},
+    { name: '2PL Serializable', ops: [
+      {t:0,txn:0,type:'R',obj:'A'}, {t:1,txn:0,type:'W',obj:'B'},
+      {t:2,txn:0,type:'C',obj:null},
+      {t:3,txn:1,type:'R',obj:'A'}, {t:4,txn:1,type:'R',obj:'B'},
+      {t:5,txn:1,type:'C',obj:null}
+    ]},
+    { name: 'Deadlock Scenario', ops: [
+      {t:0,txn:0,type:'W',obj:'A'}, {t:1,txn:1,type:'W',obj:'B'},
+      {t:2,txn:0,type:'W',obj:'B'}, {t:3,txn:1,type:'W',obj:'A'},
+      {t:4,txn:0,type:'C',obj:null}, {t:5,txn:1,type:'C',obj:null}
+    ]}
+  ];
+
+  const TXN_COLORS = ['t1','t2','t3'];
+  const TXN_NAMES = ['T1','T2','T3'];
+
+  let simOps = [], simStep = 0, simLocks = {}, simPlaying = false, simPlayTimer = null;
+  // simLocks: { obj: { holders: [{txn, type}], waiters: [{txn, type}] } }
+
+  function simReset() {
+    const idx = parseInt(document.getElementById('schedule-select').value);
+    simOps = SCHEDULES[idx].ops;
+    simStep = 0;
+    simLocks = {};
+    clearInterval(simPlayTimer); simPlaying = false;
+    document.getElementById('sim-play').textContent = '▶ Auto Play';
+    renderSchedule();
+    renderLockTable();
+    document.getElementById('sim-clock').textContent = 't = 0';
+    document.getElementById('sim-explanation').textContent = 'Step through the schedule. 2PL automatically acquires locks before reads/writes.';
+    document.getElementById('sim-explanation').className = 'explanation';
+    document.getElementById('sim-prev').disabled = true;
+    document.getElementById('sim-next').disabled = false;
+    document.getElementById('sim-step-info').textContent = 't = 0 / ' + simOps.length;
+  }
+
+  function renderSchedule() {
+    const numTxns = Math.max(...simOps.map(o => o.txn)) + 1;
+    // Group ops by txn
+    const cols = Array.from({length: numTxns}, () => []);
+    simOps.forEach((op, i) => { cols[op.txn].push({...op, opIdx: i}); });
+
+    let html = `<div style="display:grid;grid-template-columns:${cols.map(()=>'1fr').join(' ')};gap:1rem">`;
+    cols.forEach((col, ti) => {
+      html += `<div>
+        <div class="txn-header txn-t${ti+1}">${TXN_NAMES[ti]}</div>
+        ${col.map(op => {
+          const past = op.t < simStep;
+          const current = op.t === simStep - 1;
+          const typeCls = op.type === 'C' ? 'committed' : past ? 'done' : current ? 'executing' : '';
+          const lockBadge = op.type === 'R' ? '<span class="op-lock s-lock">S</span>' :
+                            op.type === 'W' ? '<span class="op-lock x-lock">X</span>' : '';
+          const opStr = op.type === 'R' ? `R(${op.obj})` : op.type === 'W' ? `W(${op.obj})` : 'COMMIT';
+          return `<div class="op-row ${typeCls}"><span class="op-keyword">${opStr}</span>${lockBadge}<span style="color:var(--text-dim);margin-left:auto;font-size:0.7rem">t=${op.t}</span></div>`;
+        }).join('')}
+      </div>`;
+    });
+    html += '</div>';
+    document.getElementById('txn-cols').innerHTML = html;
+  }
+
+  function canGrant(obj, txn, type) {
+    if (!simLocks[obj]) return true;
+    const { holders } = simLocks[obj];
+    if (holders.length === 0) return true;
+    if (type === 'S') return holders.every(h => h.type === 'S' || h.txn === txn);
+    if (type === 'X') return holders.every(h => h.txn === txn);
+    return false;
+  }
+
+  function stepForward() {
+    if (simStep >= simOps.length) return;
+    const op = simOps[simStep];
+    simStep++;
+
+    let expl = '', explType = '';
+
+    if (op.type === 'R' || op.type === 'W') {
+      const lockType = op.type === 'R' ? 'S' : 'X';
+      if (!simLocks[op.obj]) simLocks[op.obj] = { holders: [], waiters: [] };
+      const lk = simLocks[op.obj];
+
+      // Check if already holds a sufficient lock
+      const alreadyHolds = lk.holders.some(h => h.txn === op.txn && (h.type === lockType || h.type === 'X'));
+      if (!alreadyHolds) {
+        if (canGrant(op.obj, op.txn, lockType)) {
+          // Remove existing S if upgrading to X
+          const existing = lk.holders.findIndex(h => h.txn === op.txn);
+          if (existing !== -1) lk.holders.splice(existing, 1);
+          lk.holders.push({ txn: op.txn, type: lockType });
+          expl = `${TXN_NAMES[op.txn]}: Granted ${lockType}-Lock(${op.obj}). ${op.type}(${op.obj}) executed.`;
+          explType = 'success';
+        } else {
+          lk.waiters.push({ txn: op.txn, type: lockType });
+          expl = `${TXN_NAMES[op.txn]}: ${lockType}-Lock(${op.obj}) DENIED — conflict with ${lk.holders.map(h=>TXN_NAMES[h.txn]).join(',')} holding ${lk.holders[0].type}-lock. T${op.txn+1} BLOCKS.`;
+          explType = 'danger';
+        }
+      } else {
+        expl = `${TXN_NAMES[op.txn]}: Already holds ${lockType}-Lock(${op.obj}). ${op.type}(${op.obj}) executed.`;
+      }
+    } else if (op.type === 'C') {
+      // Release all locks
+      for (const obj in simLocks) {
+        simLocks[obj].holders = simLocks[obj].holders.filter(h => h.txn !== op.txn);
+        // Grant to waiters
+        while (simLocks[obj].waiters.length > 0) {
+          const next = simLocks[obj].waiters[0];
+          if (canGrant(obj, next.txn, next.type)) {
+            simLocks[obj].holders.push(simLocks[obj].waiters.shift());
+          } else break;
+        }
+      }
+      expl = `${TXN_NAMES[op.txn]}: COMMIT. All locks released (Strict 2PL).`;
+      explType = 'success';
+    }
+
+    document.getElementById('sim-clock').textContent = `t = ${simStep}`;
+    document.getElementById('sim-step-info').textContent = `t = ${simStep} / ${simOps.length}`;
+    document.getElementById('sim-prev').disabled = simStep <= 1;
+    document.getElementById('sim-next').disabled = simStep >= simOps.length;
+    if (expl) { document.getElementById('sim-explanation').textContent = expl; document.getElementById('sim-explanation').className = 'explanation ' + explType; }
+    renderSchedule();
+    renderLockTable();
+  }
+
+  function renderLockTable() {
+    const el = document.getElementById('lock-table');
+    const entries = Object.entries(simLocks).filter(([, v]) => v.holders.length > 0 || v.waiters.length > 0);
+    if (entries.length === 0) { el.innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem;text-align:center;padding:0.5rem">No locks held</div>'; return; }
+    el.innerHTML = entries.map(([obj, {holders, waiters}]) => `
+      <div class="lock-entry">
+        <div class="lock-obj">${obj}</div>
+        <div class="lock-holder">
+          ${holders.map(h => `<span class="lock-badge t${h.txn+1}-badge">${TXN_NAMES[h.txn]}:${h.type}</span>`).join('') || '<span style="color:var(--text-dim);font-size:0.75rem">free</span>'}
+        </div>
+        <div class="lock-waiter" style="color:var(--danger)">
+          ${waiters.map(h => `<span class="lock-badge" style="background:rgba(255,101,132,0.1);border:1px solid var(--danger);color:var(--danger)">${TXN_NAMES[h.txn]}:${h.type} waiting</span>`).join('')}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function togglePlay() {
+    if (simPlaying) {
+      clearInterval(simPlayTimer); simPlaying = false;
+      document.getElementById('sim-play').textContent = '▶ Auto Play';
+    } else {
+      simPlaying = true;
+      document.getElementById('sim-play').textContent = '⏸ Pause';
+      simPlayTimer = setInterval(() => {
+        if (simStep < simOps.length) stepForward();
+        else { clearInterval(simPlayTimer); simPlaying = false; document.getElementById('sim-play').textContent = '▶ Auto Play'; }
+      }, 800);
+    }
+  }
+
+  document.getElementById('schedule-select').addEventListener('change', simReset);
+  document.getElementById('sim-reset').addEventListener('click', simReset);
+  document.getElementById('sim-next').addEventListener('click', stepForward);
+  document.getElementById('sim-prev').addEventListener('click', () => { simReset(); for (let i = 0; i < Math.max(0, simStep - 2); i++) stepForward(); });
+  document.getElementById('sim-play').addEventListener('click', togglePlay);
+
+  // ============================================================
+  // LOCK COMPATIBILITY
+  // ============================================================
+  let compatLocks = {}; // { obj: { holders: [{txn, type}], waiters: [] } }
+
+  function compatReset() {
+    compatLocks = {};
+    renderCompatTable();
+    document.getElementById('compat-explanation').textContent = 'Click buttons to request/release locks on objects A and B.';
+    document.getElementById('compat-explanation').className = 'explanation';
+  }
+
+  function compatRequest(txn, obj, type) {
+    if (!compatLocks[obj]) compatLocks[obj] = { holders: [], waiters: [] };
+    const lk = compatLocks[obj];
+    const alreadyHolds = lk.holders.some(h => h.txn === txn);
+    if (alreadyHolds) {
+      const h = lk.holders.find(h => h.txn === txn);
+      if (h.type === type || (type === 'S' && h.type === 'X')) {
+        document.getElementById('compat-explanation').textContent = `${txn} already holds ${h.type}-Lock(${obj}).`;
+        return;
+      }
+      if (type === 'X' && h.type === 'S') {
+        if (lk.holders.length === 1) {
+          h.type = 'X';
+          document.getElementById('compat-explanation').textContent = `${txn}: Upgraded S→X on ${obj} (sole holder). Granted!`;
+          document.getElementById('compat-explanation').className = 'explanation success';
+        } else {
+          document.getElementById('compat-explanation').textContent = `${txn}: Cannot upgrade S→X on ${obj} — other holders exist.`;
+          document.getElementById('compat-explanation').className = 'explanation danger';
+        }
+        renderCompatTable(); return;
+      }
+    }
+
+    if (canGrantCompat(obj, txn, type)) {
+      lk.holders.push({ txn, type });
+      document.getElementById('compat-explanation').textContent = `${txn}: Granted ${type}-Lock(${obj}). ✓`;
+      document.getElementById('compat-explanation').className = 'explanation success';
+    } else {
+      document.getElementById('compat-explanation').textContent = `${txn}: DENIED ${type}-Lock(${obj}) — conflicts with ${lk.holders.map(h=>h.txn+':'+h.type).join(', ')}. Would block.`;
+      document.getElementById('compat-explanation').className = 'explanation danger';
+    }
+    renderCompatTable();
+  }
+
+  function canGrantCompat(obj, txn, type) {
+    const lk = compatLocks[obj];
+    if (!lk || lk.holders.length === 0) return true;
+    if (type === 'S') return lk.holders.every(h => h.type === 'S' || h.txn === txn);
+    if (type === 'X') return lk.holders.every(h => h.txn === txn);
+    return true;
+  }
+
+  function compatRelease(txn, obj) {
+    if (!compatLocks[obj]) return;
+    const before = compatLocks[obj].holders.length;
+    compatLocks[obj].holders = compatLocks[obj].holders.filter(h => h.txn !== txn);
+    document.getElementById('compat-explanation').textContent = before > compatLocks[obj].holders.length ? `${txn}: Released lock on ${obj}.` : `${txn}: Had no lock on ${obj}.`;
+    document.getElementById('compat-explanation').className = 'explanation';
+    renderCompatTable();
+  }
+
+  function renderCompatTable() {
+    const el = document.getElementById('compat-lock-table');
+    const entries = Object.entries(compatLocks).filter(([, v]) => v.holders.length > 0);
+    if (entries.length === 0) { el.innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem;text-align:center;padding:0.5rem">No locks held</div>'; return; }
+    el.innerHTML = entries.map(([obj, {holders}]) => `
+      <div class="lock-entry">
+        <div class="lock-obj">${obj}</div>
+        <div class="lock-holder">${holders.map(h => `<span class="lock-badge" style="background:rgba(108,99,255,0.15);border:1px solid var(--accent);color:var(--accent)">${h.txn}:${h.type}</span>`).join('')}</div>
+        <div></div>
+      </div>
+    `).join('');
+  }
+
+  // ============================================================
+  // DEADLOCK
+  // ============================================================
+  let dlLocks = {}, dlWaitsFor = [];
+
+  function dlReset() {
+    dlLocks = {}; dlWaitsFor = [];
+    renderDlLockTable(); renderWaitsFor(); renderWaitsForGraph();
+    document.getElementById('dl-explanation').textContent = 'Run a scenario to see how deadlocks form.';
+    document.getElementById('dl-explanation').className = 'explanation';
+  }
+
+  function dlAcquire(txn, obj, type) {
+    if (!dlLocks[obj]) dlLocks[obj] = { holders: [], waiters: [] };
+    const lk = dlLocks[obj];
+    const canGet = type === 'S' ? lk.holders.every(h => h.type === 'S' || h.txn === txn) :
+                                  lk.holders.every(h => h.txn === txn);
+    if (lk.holders.length === 0 || canGet) {
+      if (!lk.holders.some(h => h.txn === txn)) lk.holders.push({ txn, type });
+    } else {
+      lk.waiters.push({ txn, type });
+      lk.holders.forEach(h => {
+        if (h.txn !== txn && !dlWaitsFor.some(e => e.from === txn && e.to === h.txn)) {
+          dlWaitsFor.push({ from: txn, to: h.txn, obj });
+        }
+      });
+    }
+  }
+
+  function runDeadlock(scenario) {
+    dlReset();
+    if (scenario === 't2') {
+      dlAcquire('T1','A','X'); dlAcquire('T2','B','X');
+      dlAcquire('T1','B','X'); dlAcquire('T2','A','X');
+      document.getElementById('dl-explanation').textContent = 'T1 holds A, waits for B. T2 holds B, waits for A. → DEADLOCK!';
+      document.getElementById('dl-explanation').className = 'explanation danger';
+    } else {
+      dlAcquire('T1','A','X'); dlAcquire('T2','B','X'); dlAcquire('T3','C','X');
+      dlAcquire('T1','B','X'); dlAcquire('T2','C','X'); dlAcquire('T3','A','X');
+      document.getElementById('dl-explanation').textContent = 'T1→B→T2→C→T3→A→T1. Cycle of length 3 → DEADLOCK!';
+      document.getElementById('dl-explanation').className = 'explanation danger';
+    }
+    renderDlLockTable(); renderWaitsFor(); renderWaitsForGraph();
+  }
+
+  function detectDeadlock() {
+    // DFS cycle detection
+    const txns = [...new Set(dlWaitsFor.flatMap(e => [e.from, e.to]))];
+    const adj = {};
+    txns.forEach(t => adj[t] = []);
+    dlWaitsFor.forEach(e => adj[e.from].push(e.to));
+
+    const visited = new Set(), inStack = new Set();
+    let cycle = null;
+    function dfs(node, path) {
+      if (inStack.has(node)) { cycle = path; return true; }
+      if (visited.has(node)) return false;
+      visited.add(node); inStack.add(node); path.push(node);
+      for (const nb of (adj[node]||[])) { if (dfs(nb, [...path])) return true; }
+      inStack.delete(node); return false;
+    }
+    for (const t of txns) { if (dfs(t, [])) break; }
+
+    if (cycle) {
+      const victim = cycle[cycle.length - 1];
+      // Abort victim
+      for (const obj in dlLocks) {
+        dlLocks[obj].holders = dlLocks[obj].holders.filter(h => h.txn !== victim);
+        dlLocks[obj].waiters = dlLocks[obj].waiters.filter(h => h.txn !== victim);
+      }
+      dlWaitsFor = dlWaitsFor.filter(e => e.from !== victim && e.to !== victim);
+      document.getElementById('dl-explanation').textContent = `Deadlock detected! Cycle: ${cycle.join(' → ')}. Aborted victim: ${victim}.`;
+      document.getElementById('dl-explanation').className = 'explanation warning';
+    } else {
+      document.getElementById('dl-explanation').textContent = 'No deadlock detected.';
+      document.getElementById('dl-explanation').className = 'explanation success';
+    }
+    renderDlLockTable(); renderWaitsFor(); renderWaitsForGraph();
+  }
+
+  function renderDlLockTable() {
+    const el = document.getElementById('dl-lock-table');
+    const entries = Object.entries(dlLocks).filter(([, v]) => v.holders.length > 0 || v.waiters.length > 0);
+    if (entries.length === 0) { el.innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem;text-align:center;padding:0.5rem">No locks</div>'; return; }
+    el.innerHTML = entries.map(([obj, {holders, waiters}]) => `
+      <div class="lock-entry">
+        <div class="lock-obj">${obj}</div>
+        <div class="lock-holder">${holders.map(h => `<span class="lock-badge" style="background:rgba(108,99,255,0.15);border:1px solid var(--accent);color:var(--accent)">${h.txn}:${h.type}</span>`).join('')}</div>
+        <div class="lock-waiter">${waiters.map(h => `<span class="lock-badge" style="background:rgba(255,101,132,0.1);border:1px solid var(--danger);color:var(--danger)">${h.txn} waiting</span>`).join('')}</div>
+      </div>
+    `).join('');
+  }
+
+  function renderWaitsFor() {
+    const el = document.getElementById('waits-for-graph');
+    if (dlWaitsFor.length === 0) { el.innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem">No waits</div>'; return; }
+    // Simple cycle detection for highlight
+    const adj = {};
+    dlWaitsFor.forEach(e => { if (!adj[e.from]) adj[e.from]=[]; adj[e.from].push(e.to); });
+    const inCycle = new Set();
+    dlWaitsFor.forEach(e => {
+      // Check if there's a path from e.to back to e.from
+      const visited = new Set(), stack = [e.to];
+      while (stack.length) { const n = stack.pop(); if (n === e.from) { inCycle.add(e.from); inCycle.add(e.to); break; } if (!visited.has(n)) { visited.add(n); (adj[n]||[]).forEach(nb => stack.push(nb)); } }
+    });
+    el.innerHTML = dlWaitsFor.map(e => `
+      <div class="wf-edge ${inCycle.has(e.from) && inCycle.has(e.to) ? 'cycle' : ''}">
+        ${e.from} <span style="color:var(--danger)">→</span> ${e.to}
+        <span style="color:var(--text-dim);font-size:0.75rem;margin-left:auto">waiting for ${e.obj}</span>
+      </div>
+    `).join('');
+  }
+
+  function renderWaitsForGraph() {
+    const svg = document.getElementById('dl-svg');
+    const W = svg.clientWidth || 300, H = 300;
+    const txns = [...new Set(dlWaitsFor.flatMap(e => [e.from, e.to]))];
+    if (txns.length === 0) { svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#555" font-size="14">No transactions</text>'; return; }
+
+    const cx = W / 2, cy = H / 2, R = Math.min(cx, cy) * 0.65;
+    const positions = {};
+    txns.forEach((t, i) => {
+      const angle = (i / txns.length) * 2 * Math.PI - Math.PI / 2;
+      positions[t] = { x: cx + R * Math.cos(angle), y: cy + R * Math.sin(angle) };
+    });
+
+    const colors = { T1: '#6c63ff', T2: '#43d9ad', T3: '#ffd166' };
+    let html = '<defs><marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#ff6584"/></marker></defs>';
+
+    dlWaitsFor.forEach(e => {
+      const from = positions[e.from], to = positions[e.to];
+      if (!from || !to) return;
+      const dx = to.x - from.x, dy = to.y - from.y, len = Math.sqrt(dx*dx+dy*dy);
+      const nx = dx/len, ny = dy/len;
+      const r = 22;
+      html += `<line x1="${from.x+nx*r}" y1="${from.y+ny*r}" x2="${to.x-nx*r}" y2="${to.y-ny*r}" stroke="#ff6584" stroke-width="2" marker-end="url(#arr)"/>`;
+    });
+
+    txns.forEach(t => {
+      const p = positions[t];
+      const col = colors[t] || '#888';
+      html += `<circle cx="${p.x}" cy="${p.y}" r="22" fill="${col}22" stroke="${col}" stroke-width="2"/>`;
+      html += `<text x="${p.x}" y="${p.y+5}" text-anchor="middle" fill="${col}" font-size="13" font-weight="700" font-family="monospace">${t}</text>`;
+    });
+
+    svg.innerHTML = html;
+  }
+
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['simulator','compat','deadlock'][i]===name));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + name).classList.add('active');
+  }
+
+  simReset();
+  compatReset();
+  dlReset();
+  </script>
+</body>
+</html>
