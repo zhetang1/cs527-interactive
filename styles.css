@@ -18,6 +18,33 @@
   --success: #43d9ad;
   --font: 'Inter', system-ui, sans-serif;
   --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --surface2: #eef0f6;
+  --border: #d8dce8;
+  --text: #1a1d2e;
+  --text-dim: #5a6480;
+  --node-fill: #eef0f6;
+  --leaf-fill: #e8f4ff;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f5f7fa;
+    --surface: #ffffff;
+    --surface2: #eef0f6;
+    --border: #d8dce8;
+    --text: #1a1d2e;
+    --text-dim: #5a6480;
+    --node-fill: #eef0f6;
+    --leaf-fill: #e8f4ff;
+    color-scheme: light;
+  }
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -42,6 +69,33 @@ nav {
   top: 0;
   z-index: 100;
 }
+
+/* Theme toggle */
+.theme-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.theme-btn {
+  background: none;
+  border: none;
+  border-radius: 5px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.theme-btn:hover { color: var(--text); }
+.theme-btn.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
 
 .nav-brand {
   font-weight: 700;
