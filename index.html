@@ -1,118 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Database Systems Interactive</title>
-  <script src="theme.js"></script>
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
 </head>
 <body>
-  <nav>
-    <a class="nav-brand" href="index.html">DB Systems</a>
-    <div class="nav-links">
-      <a class="nav-link active" href="index.html">Home</a>
-      <a class="nav-link" href="btree.html">B+ Tree</a>
-      <a class="nav-link" href="bloom.html">Bloom Filter</a>
-      <a class="nav-link" href="hashtable.html">Hash Tables</a>
-      <a class="nav-link" href="bufferpool.html">Buffer Pool</a>
-      <a class="nav-link" href="joins.html">Join Algorithms</a>
-      <a class="nav-link" href="sorting.html">External Sort</a>
-      <a class="nav-link" href="locking.html">2PL &amp; Locking</a>
-    </div>
-  </nav>
-
-  <div class="hero">
-    <div class="hero-title">Database Systems<br>Interactive Visualizer</div>
-    <p class="hero-sub">Step through core database algorithms with live, animated visualizations.</p>
-  </div>
-
-  <div class="page" style="padding-top:0">
-    <div class="app-grid">
-      <a class="app-card" href="btree.html">
-        <div class="app-card-icon">🌳</div>
-        <div class="app-card-title">B+ Tree</div>
-        <div class="app-card-desc">Insert, delete, and search in a B+ Tree. Watch nodes split and merge as the tree stays balanced.</div>
-        <div class="app-card-tags">
-          <span class="tag">Insert</span>
-          <span class="tag">Delete</span>
-          <span class="tag">Search</span>
-          <span class="tag">Node Split</span>
-          <span class="tag">Merge</span>
-        </div>
-      </a>
-
-      <a class="app-card" href="bloom.html">
-        <div class="app-card-icon">🔮</div>
-        <div class="app-card-title">Bloom Filter</div>
-        <div class="app-card-desc">See how a probabilistic bit-array answers set membership queries. Insert elements and trigger false positives.</div>
-        <div class="app-card-tags">
-          <span class="tag">Bit Array</span>
-          <span class="tag">Hash Functions</span>
-          <span class="tag">False Positives</span>
-        </div>
-      </a>
-
-      <a class="app-card" href="hashtable.html">
-        <div class="app-card-icon">🔑</div>
-        <div class="app-card-title">Hash Tables</div>
-        <div class="app-card-desc">Explore linear probing, chained hashing, cuckoo hashing, and extendible hashing with collision visualizations.</div>
-        <div class="app-card-tags">
-          <span class="tag">Linear Probe</span>
-          <span class="tag">Chaining</span>
-          <span class="tag">Cuckoo</span>
-          <span class="tag">Extendible</span>
-        </div>
-      </a>
-
-      <a class="app-card" href="bufferpool.html">
-        <div class="app-card-icon">💾</div>
-        <div class="app-card-title">Buffer Pool</div>
-        <div class="app-card-desc">Simulate page requests and watch replacement policies (LRU, Clock, LRU-K) decide which frames to evict.</div>
-        <div class="app-card-tags">
-          <span class="tag">LRU</span>
-          <span class="tag">Clock</span>
-          <span class="tag">LRU-K</span>
-          <span class="tag">Eviction</span>
-        </div>
-      </a>
-
-      <a class="app-card" href="joins.html">
-        <div class="app-card-icon">⨝</div>
-        <div class="app-card-title">Join Algorithms</div>
-        <div class="app-card-desc">Visualize Nested Loop Join, Sort-Merge Join, and Hash Join operating on two relations.</div>
-        <div class="app-card-tags">
-          <span class="tag">Nested Loop</span>
-          <span class="tag">Sort-Merge</span>
-          <span class="tag">Hash Join</span>
-          <span class="tag">I/O Cost</span>
-        </div>
-      </a>
-
-      <a class="app-card" href="sorting.html">
-        <div class="app-card-icon">↕️</div>
-        <div class="app-card-title">External Sort</div>
-        <div class="app-card-desc">Step through the two-pass external merge sort algorithm when data doesn't fit in memory.</div>
-        <div class="app-card-tags">
-          <span class="tag">Merge Sort</span>
-          <span class="tag">Runs</span>
-          <span class="tag">Buffer Pages</span>
-        </div>
-      </a>
-
-      <a class="app-card" href="locking.html">
-        <div class="app-card-icon">🔒</div>
-        <div class="app-card-title">2PL &amp; Locking</div>
-        <div class="app-card-desc">Simulate transactions acquiring and releasing locks. See deadlocks form and how 2PL ensures serializability.</div>
-        <div class="app-card-tags">
-          <span class="tag">S-Lock</span>
-          <span class="tag">X-Lock</span>
-          <span class="tag">Deadlock</span>
-          <span class="tag">Waits-For</span>
-        </div>
-      </a>
-    </div>
-  </div>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
