@@ -12,6 +12,7 @@ const NAV_LINKS = [
   { to: '/sorting', label: 'External Sort' },
   { to: '/locking', label: '2PL & Locking' },
   { to: '/domino-puzzle', label: 'Domino Puzzle' },
+  { to: '/big-pairs-matrix', label: 'Big Pairs Matrix' },
 ]
 
 export default function Nav() {

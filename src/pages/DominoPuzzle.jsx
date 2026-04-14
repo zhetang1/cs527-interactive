@@ -26,78 +26,42 @@ function getAllCells() {
     return cells; // 65 cells
 }
 
-function shuffle(arr) {
-    const a = [...arr];
-    for (let i = a.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-}
-
 // Generate exactly 32 dominoes covering 64 of 65 cells
-// Strategy: pick a random hole, then tile the rest with a guaranteed-complete algorithm
+// Strategy: start from the known all-horizontal solution, shuffle with 500 random valid moves
 function generateTiling() {
-    const allCells = getAllCells(); // 65 cells
+    const dominoes = makeAllHorizontal(); // known solution, hole at (0,8)
+    const map = buildCellMap(dominoes);   // cellKey -> domino id
+    let holeR = 0, holeC = 8;
 
-    // Try random hole positions until we find one that allows a full tiling
-    const holeOptions = shuffle(allCells);
+    for (let step = 0; step < 500; step++) {
+        const movable = [[holeR-1,holeC],[holeR+1,holeC],[holeR,holeC-1],[holeR,holeC+1]]
+            .filter(([r,c]) => isValidCell(r,c) && map[cellKey(r,c)] !== undefined);
+        if (!movable.length) break;
 
-    for (const hole of holeOptions) {
-        const result = tryTileWithHole(hole, allCells);
-        if (result) return result;
-    }
-    // Fallback: all horizontal (always valid if hole is cell (0,8))
-    return makeAllHorizontal();
-}
+        const [nr, nc] = movable[Math.floor(Math.random() * movable.length)];
+        const nkey = cellKey(nr, nc);
+        const domId = map[nkey];
+        const domIdx = dominoes.findIndex(d => d.id === domId);
+        const dom = dominoes[domIdx];
+        const otherKey = dom.cells.find(k => k !== nkey);
+        const [or, oc] = parseKey(otherKey);
+        const hkey = cellKey(holeR, holeC);
 
-function tryTileWithHole(hole, allCells) {
-    // Use a randomized greedy backtracking approach
-    const uncovered = new Set(allCells.filter(c => c !== hole));
-    const dominoes = [];
-    let idCounter = 0;
+        dominoes[domIdx] = {
+            ...dom,
+            cells: [hkey, nkey],
+            horizontal: holeR === nr,
+            row: Math.min(holeR, nr),
+            col: Math.min(holeC, nc),
+        };
+        map[hkey] = domId;
+        delete map[otherKey];
 
-    function backtrack() {
-        if (uncovered.size === 0) return true;
-
-        // Pick the first uncovered cell (deterministic order for backtracking)
-        const key = [...uncovered][0];
-        const [r, c] = parseKey(key);
-
-        // Try neighbors in random order
-        const neighbors = shuffle([
-            [r, c+1], [r, c-1], [r+1, c], [r-1, c]
-        ]).filter(([nr, nc]) => isValidCell(nr, nc) && uncovered.has(cellKey(nr, nc)));
-
-        for (const [nr, nc] of neighbors) {
-            const nkey = cellKey(nr, nc);
-            const isHoriz = nr === r;
-            const dom = {
-                id: idCounter++,
-                cells: [key, nkey],
-                horizontal: isHoriz,
-                row: Math.min(r, nr),
-                col: Math.min(c, nc),
-            };
-            uncovered.delete(key);
-            uncovered.delete(nkey);
-            dominoes.push(dom);
-
-            if (backtrack()) return true;
-
-            dominoes.pop();
-            uncovered.add(key);
-            uncovered.add(nkey);
-            idCounter--;
-        }
-
-        return false;
+        holeR = or;
+        holeC = oc;
     }
 
-    if (backtrack()) {
-        return dominoes;
-    }
-    return null;
+    return dominoes;
 }
 
 function makeAllHorizontal() {

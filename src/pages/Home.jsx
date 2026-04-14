@@ -104,6 +104,17 @@ export default function Home() {
               <span className="tag">Constraint Solving</span>
             </div>
           </Link>
+
+          <Link className="app-card" to="/big-pairs-matrix">
+            <div className="app-card-icon">🔢</div>
+            <div className="app-card-title">Big Pairs in a Matrix</div>
+            <div className="app-card-desc">Step through the proof that the sum of the top-2 values in every row equals the sum of the top-2 values in every column.</div>
+            <div className="app-card-tags">
+              <span className="tag">Proof</span>
+              <span className="tag">Contradiction</span>
+              <span className="tag">Matrix</span>
+            </div>
+          </Link>
         </div>
       </div>
     </>

@@ -11,6 +11,7 @@ import Joins from './pages/Joins.jsx'
 import Sorting from './pages/Sorting.jsx'
 import Locking from './pages/Locking.jsx'
 import DominoPuzzle from './pages/DominoPuzzle.jsx'
+import BigPairsMatrix from './pages/BigPairsMatrix.tsx'
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/sorting" element={<Sorting />} />
         <Route path="/locking" element={<Locking />} />
         <Route path="/domino-puzzle" element={<DominoPuzzle />} />
+        <Route path="/big-pairs-matrix" element={<BigPairsMatrix />} />
       </Routes>
     </ThemeProvider>
   )
