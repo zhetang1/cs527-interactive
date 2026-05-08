@@ -1,16 +1,4 @@
-import { useState, useEffect } from "react";
-
-const MATRIX = [
-    [3, 7, 2, 5],
-    [6, 1, 8, 4],
-    [2, 9, 3, 6],
-    [5, 4, 7, 1],
-];
-
-// r = sum of top 2 in each row = 12 (rows: 7+5, 8+6, 9+6, 7+5)
-// But let's force r > c scenario for illustration
-// We'll use a crafted matrix where r=c to show the proof works
-// Actually let's show a step-by-step proof illustration with a general matrix
+import { useState } from "react";
 
 const steps = [
     {
@@ -69,144 +57,7 @@ const steps = [
     },
 ];
 
-// A matrix where r=13, c=13 to illustrate the theorem is true
-// Row maxima and 2nd maxima sum to 13 each row
-// Col top-2 sum to 13 each col
-const M = [
-    [8, 3, 5, 7],
-    [2, 9, 4, 6],
-    [6, 7, 3, 5],  // wait let me think carefully
-    [5, 2, 9, 4],
-];
-// Actually let me construct carefully:
-// Row 0: sorted desc 8,7,5,3 → top2 = 15 ✗
-// Let me just use a 4x4 where we can trace the argument clearly
-
-// Use this matrix:
-// Row sums of top-2: each = 13
-// Col sums of top-2: each = 13
-const MAT = [
-    [8, 5, 3, 6],
-    [4, 7, 9, 2],
-    [6, 3, 5, 8],
-    [2, 9, 4, 7],
-];
-// Row 0: 8,6 → 14 ✗ hmm
-// Let me just use a simple crafted example and annotate manually
-
-// Final matrix - chosen for clear illustration, r=c=13
-const GRID = [
-    [8, 5, 6, 3],
-    [3, 9, 2, 7],
-    [7, 2, 9, 3],
-    [5, 6, 3, 8],
-];
-// Row 0: top2 = 8+6 = 14... still not clean
-// I'll just annotate without enforcing exact r=c; the illustration is about the PROOF LOGIC
-
-// Simple 4x4, rows r=10, cols c=10
-const FINAL_GRID = [
-    [6, 4, 1, 7],
-    [3, 8, 5, 2],
-    [7, 2, 6, 4],
-    [1, 5, 8, 3],
-];
-// Row 0: 7+6=13, Row 1: 8+5=13, Row 2: 7+6=13, Row 3: 8+5=13 → r=13
-// Col 0: 7+6=13, Col 1: 8+5=13, Col 2: 8+6=14 ✗
-
-// Let me just use a nice symmetric Latin-square-ish one
-// I'll pick values manually
-const G = [
-    [1, 8, 5, 3],
-    [6, 2, 9, 4],
-    [8, 5, 1, 7],
-    [4, 7, 6, 2],
-];
-// Row 0: 8+5=13 ✓, Row 1: 9+6=15 ✗
-
-// You know what, let me just use a small 3x3 and hand-pick it
-// 3x3: r=c=9
-const GRID3 = [
-    [5, 4, 7],
-    [6, 8, 3],
-    [7, 5, 6],
-];
-// Row 0: 7+5=12, Row1: 8+6=14, Row2: 7+6=13 ✗
-
-// I'll just build a pedagogically clear 4x4 where r=c=11
-// and annotate which are circles/squares
-const DATA = [
-    [3, 8, 5, 2],
-    [7, 1, 4, 9],
-    [5, 6, 8, 3],
-    [9, 4, 2, 7],
-];
-// Row 0: 8+5=13 ✓ circle=8(col1), sq=5(col2)
-// Row 1: 9+7=16 ✗
-
-// Let me just hardcode a pretty example and mark it manually
-// I'll use a 4x4 where r=c=13, constructed carefully:
-//   a b c d
-// 0 [4 9 6 3]  → top2: 9+6=15 ✗
-
-// FORGET trying to be mathematically perfect with exact values.
-// The illustration is about PROOF LOGIC. I'll use a clear 4x4 with
-// explicit markings and just label r and c as "r" and "c" symbolically.
-
-const DEMO = [
-    [3, 7, 2, 6],
-    [8, 1, 5, 4],
-    [4, 6, 9, 2],
-    [7, 3, 5, 8],
-];
-// Row maxima: 7(c1), 8(c0), 9(c2), 8(c3)
-// Row 2nds: 6(c3), 5(c2), 6(c1), 7(c0)
-// r per row: 13, 13, 15, 15 — not constant
-
-// I'll stop trying to find a perfect matrix and just pick one with consistent r
-// Use doubly stochastic structure idea:
-//
-// Simple: 4x4 with values 1-4 in each row and column (like a Latin square scaled)
-// Latin square scaled by distinct values per cell won't give same row/col sums easily.
-//
-// FINAL ANSWER: Use this matrix which I verify by hand:
-const VERIFIED = [
-    [2, 7, 4, 5],  // top2: 7+5=12
-    [6, 3, 8, 1],  // top2: 8+6=14  ✗
-];
-
-// I give up on perfectly balanced and will just use a visually clean 4x4
-// and annotate the proof structure — it's an ILLUSTRATION not a verification.
-// The labels will say "r" for row-pair sums.
-
-const MATRIX_FINAL = [
-    [3, 8, 5, 1],
-    [7, 2, 4, 9],
-    [5, 6, 8, 3],
-    [9, 4, 1, 6],
-];
-// Row circles (max): 8, 9, 8, 9
-// Row squares (2nd): 5, 7, 6, 6
-// Row sums: 13, 16, 14, 15 — not equal but that's ok, proof is general
-
-// For the illustration I'll just pick a SPECIFIC matrix and annotate it
-// with the proof steps, noting which cell is x, y, z
-
-// Decided: use this clean matrix
-const MX = [
-    [2, 9, 4, 6],
-    [8, 3, 7, 5],
-    [5, 6, 3, 8],
-    [7, 4, 9, 1],
-];
-// Row 0: circle=9(c1), sq=6(c3), sum=15
-// Row 1: circle=8(c0), sq=7(c2), sum=15
-// Row 2: circle=8(c3), sq=6(c1), sum=14 ✗
-
-// FINAL FINAL: I'll just hardcode a nice one with r=15 for rows 0&1, annotate those 2 rows,
-// and show the contradiction. Focus on the story.
-
-export default function App() {
+export default function BigPairsMatrix() {
     const [step, setStep] = useState(0);
     const [animating, setAnimating] = useState(false);
 
@@ -223,22 +74,14 @@ export default function App() {
     // Col 1: 9,3,6,4 → top2: 9+6=15 ✓
     // Col 2: 4,7,2,8 → top2: 8+7=15 ✓
     // Col 3: 6,5,9,1 → top2: 9+6=15 ✓
-    // PERFECT! r=c=15
+    // r=c=15
 
-    const circlePos = [[0,1],[1,0],[2,3],[3,2]]; // row maxima
-    const squarePos = [[0,3],[1,2],[2,1],[3,0]]; // row 2nd maxima
+    const circlePos = [[0,1],[1,0],[2,3],[3,2]];
+    const squarePos = [[0,3],[1,2],[2,1],[3,0]];
 
-    // For the "x is largest squared number" step: x=7 at (1,2), or x=7 at (3,0)
-    // Let's say x=7 at (1,2) (column 2)
-    // Column 2 circled number y: (3,2)=8
-    // y's row (row 3): circle=8(c2), square=7(c0) so z=7
-    // y+z = 8+7 = 15 = r ✓
-    // y+x = 8+7 = 15 = r > c? But r=c here so no contradiction — that's correct!
-    // The proof: if r>c, we'd have y+x >= y+z = r > c, but y+x <= c. Contradiction.
-
-    const xCell = [1,2]; // x=7, largest squared (tied with (3,0)=7, pick this one)
-    const yCell = [3,2]; // y=8, circled number in column 2
-    const zCell = [3,0]; // z=7, squared number in y's row
+    const xCell = [1,2];
+    const yCell = [3,2];
+    const zCell = [3,0];
 
     const s = steps[step];
 
@@ -247,7 +90,6 @@ export default function App() {
     const isX = (r,c) => step>=6 && r===xCell[0] && c===xCell[1];
     const isY = (r,c) => step>=7 && r===yCell[0] && c===yCell[1];
     const isZ = (r,c) => step>=7 && r===zCell[0] && c===zCell[1];
-    const isColJ = (r,c) => step>=5 && c===2;
 
     const showCircle = step >= 2;
     const showSquare = step >= 3;
@@ -261,24 +103,19 @@ export default function App() {
 
     const getCellStyle = (r,c) => {
         let bg = "transparent";
-        let border = "2px solid transparent";
-        let color = "#e2d9c5";
+        let color = "var(--text)";
         let fontWeight = "400";
         let shadow = "none";
-        let outline = "none";
 
         if (step >= 5 && c === 2) {
-            bg = "rgba(100,180,255,0.08)";
+            bg = "rgba(100,180,255,0.18)";
         }
-
         if (showCircle && isCircled(r,c)) {
-            outline = "2.5px solid #f4a261";
             color = "#f4a261";
             fontWeight = "700";
             shadow = "0 0 12px rgba(244,162,97,0.4)";
         }
         if (showSquare && isSquared(r,c)) {
-            border = "2.5px solid #90e0a0";
             color = "#90e0a0";
             fontWeight = "700";
             shadow = "0 0 12px rgba(144,224,160,0.4)";
@@ -299,48 +136,18 @@ export default function App() {
             color = "#c890ff";
         }
 
-        return { bg, border, color, fontWeight, shadow, outline };
+        return { bg, color, fontWeight, shadow };
     };
 
     return (
-        <div style={{
-            minHeight: "100vh",
-            background: "#0f0e0b",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            fontFamily: "'Georgia', 'Times New Roman', serif",
-            padding: "24px 16px",
-            color: "#e2d9c5",
-        }}>
-            {/* Title */}
-            <div style={{ textAlign: "center", marginBottom: 32 }}>
-                <div style={{
-                    fontSize: 11,
-                    letterSpacing: "0.25em",
-                    textTransform: "uppercase",
-                    color: "#7a7060",
-                    marginBottom: 8,
-                }}>Mathematical Proof Illustration</div>
-                <h1 style={{
-                    fontSize: "clamp(22px, 5vw, 38px)",
-                    fontWeight: "normal",
-                    fontStyle: "italic",
-                    margin: 0,
-                    color: "#e8dcc8",
-                    letterSpacing: "0.02em",
-                }}>Big Pairs in a Matrix</h1>
-                <div style={{
-                    width: 60, height: 1,
-                    background: "linear-gradient(90deg, transparent, #7a7060, transparent)",
-                    margin: "14px auto 0",
-                }}/>
+        <div className="page">
+            <div className="page-header">
+                <div className="page-title">Big Pairs in a Matrix</div>
+                <div className="page-desc">A mathematical proof illustration: in an n×n matrix where each row's two largest values sum to r and each column's two largest sum to c, we show r = c.</div>
             </div>
 
             {/* Matrix */}
             <div style={{ position: "relative", marginBottom: 32 }}>
-                {/* Column label */}
                 {step >= 6 && (
                     <div style={{
                         position: "absolute",
@@ -358,17 +165,14 @@ export default function App() {
                     gridTemplateRows: "repeat(4, 72px)",
                     gap: 6,
                     padding: 18,
-                    background: "rgba(255,255,255,0.03)",
+                    background: "var(--surface2)",
                     borderRadius: 16,
-                    border: "1px solid rgba(255,255,255,0.07)",
+                    border: "1px solid var(--border)",
                     boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
                 }}>
                     {matrix.map((row, r) =>
                         row.map((val, c) => {
                             const st = getCellStyle(r, c);
-                            const isXcell = isX(r,c);
-                            const isYcell = isY(r,c);
-                            const isZcell = isZ(r,c);
                             return (
                                 <div key={`${r}-${c}`} style={{
                                     width: 72, height: 72,
@@ -376,11 +180,9 @@ export default function App() {
                                     alignItems: "center",
                                     justifyContent: "center",
                                     position: "relative",
-                                    borderRadius: showSquare && isSquared(r,c) ? 4 : "50%",
                                     background: st.bg,
                                     transition: "all 0.4s ease",
                                 }}>
-                                    {/* Circle ring */}
                                     {showCircle && isCircled(r,c) && (
                                         <div style={{
                                             position: "absolute",
@@ -391,7 +193,6 @@ export default function App() {
                                             transition: "all 0.4s",
                                         }}/>
                                     )}
-                                    {/* Square ring */}
                                     {showSquare && isSquared(r,c) && (
                                         <div style={{
                                             position: "absolute",
@@ -408,23 +209,22 @@ export default function App() {
                                         color: st.color,
                                         transition: "color 0.4s",
                                         zIndex: 1,
-                                        fontStyle: "normal",
                                         fontFamily: "'Georgia', serif",
+                                        textShadow: st.shadow,
                                     }}>{val}</span>
-                                    {/* Labels */}
-                                    {isXcell && (
+                                    {isX(r,c) && (
                                         <span style={{
                                             position: "absolute", top: 2, right: 6,
                                             fontSize: 11, color: "#ffe566", fontStyle: "italic",
                                         }}>x</span>
                                     )}
-                                    {isYcell && (
+                                    {isY(r,c) && (
                                         <span style={{
                                             position: "absolute", top: 2, right: 6,
                                             fontSize: 11, color: "#ff8080", fontStyle: "italic",
                                         }}>y</span>
                                     )}
-                                    {isZcell && (
+                                    {isZ(r,c) && (
                                         <span style={{
                                             position: "absolute", top: 2, right: 6,
                                             fontSize: 11, color: "#c890ff", fontStyle: "italic",
@@ -441,19 +241,16 @@ export default function App() {
             {step >= 2 && (
                 <div style={{
                     display: "flex", gap: 20, marginBottom: 24,
-                    opacity: step >= 2 ? 1 : 0,
-                    transition: "opacity 0.4s",
+                    flexWrap: "wrap", justifyContent: "center",
                 }}>
-                    {step >= 2 && (
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <div style={{
-                                width: 22, height: 22, borderRadius: "50%",
-                                border: "2px solid #f4a261",
-                                boxShadow: "0 0 8px rgba(244,162,97,0.4)",
-                            }}/>
-                            <span style={{ fontSize: 12, color: "#f4a261", letterSpacing: "0.05em" }}>row max</span>
-                        </div>
-                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{
+                            width: 22, height: 22, borderRadius: "50%",
+                            border: "2px solid #f4a261",
+                            boxShadow: "0 0 8px rgba(244,162,97,0.4)",
+                        }}/>
+                        <span style={{ fontSize: 12, color: "#f4a261", letterSpacing: "0.05em" }}>row max</span>
+                    </div>
                     {step >= 3 && (
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <div style={{
@@ -487,8 +284,8 @@ export default function App() {
             <div style={{
                 maxWidth: 520,
                 width: "100%",
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.09)",
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
                 borderRadius: 14,
                 padding: "24px 28px",
                 marginBottom: 24,
@@ -496,31 +293,28 @@ export default function App() {
                 boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
                 transition: "all 0.3s ease",
             }}>
-                <div style={{
-                    display: "flex", alignItems: "baseline", gap: 12, marginBottom: 10,
-                }}>
-          <span style={{
-              fontSize: 11,
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              color: "#7a7060",
-          }}>Step {step + 1} of {steps.length}</span>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 10 }}>
+                    <span style={{
+                        fontSize: 11,
+                        letterSpacing: "0.2em",
+                        textTransform: "uppercase",
+                        color: "var(--text-dim)",
+                    }}>Step {step + 1} of {steps.length}</span>
                     <h2 style={{
                         margin: 0,
                         fontSize: 16,
                         fontStyle: "italic",
                         fontWeight: "normal",
-                        color: "#e8dcc8",
+                        color: "var(--text)",
                     }}>{s.title}</h2>
                 </div>
                 <p style={{
                     margin: 0,
                     fontSize: 14,
                     lineHeight: 1.75,
-                    color: "#b0a898",
+                    color: "var(--text-dim)",
                 }}>{s.desc}</p>
 
-                {/* Special formula display for contradiction step */}
                 {step === 8 && (
                     <div style={{
                         marginTop: 16,
@@ -535,7 +329,7 @@ export default function App() {
                         lineHeight: 2,
                     }}>
                         x ≥ z &nbsp;⟹&nbsp; y + x ≥ y + z = r &gt; c<br/>
-                        <span style={{ color: "#7a7060", fontSize: 12 }}>but y, x both in column j &nbsp;⟹&nbsp; y + x ≤ c</span><br/>
+                        <span style={{ color: "var(--text-dim)", fontSize: 12 }}>but y, x both in column j &nbsp;⟹&nbsp; y + x ≤ c</span><br/>
                         <span style={{ color: "#ff6060", fontSize: 13 }}>Contradiction! ∎</span>
                     </div>
                 )}
@@ -561,12 +355,12 @@ export default function App() {
                     }}>
                         <div style={{ textAlign: "center" }}>
                             <div style={{ fontSize: 22, fontStyle: "italic", color: "#f4a261" }}>r = 15</div>
-                            <div style={{ fontSize: 11, color: "#7a7060", letterSpacing: "0.1em", marginTop: 3 }}>each row's top-2 sum</div>
+                            <div style={{ fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.1em", marginTop: 3 }}>each row's top-2 sum</div>
                         </div>
-                        <div style={{ width: 1, background: "rgba(255,255,255,0.1)" }}/>
+                        <div style={{ width: 1, background: "var(--border)" }}/>
                         <div style={{ textAlign: "center" }}>
                             <div style={{ fontSize: 22, fontStyle: "italic", color: "#90e0a0" }}>c = 15</div>
-                            <div style={{ fontSize: 11, color: "#7a7060", letterSpacing: "0.1em", marginTop: 3 }}>each column's top-2 sum</div>
+                            <div style={{ fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.1em", marginTop: 3 }}>each column's top-2 sum</div>
                         </div>
                     </div>
                 )}
@@ -580,9 +374,9 @@ export default function App() {
                     style={{
                         width: 44, height: 44,
                         borderRadius: "50%",
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        background: step === 0 ? "transparent" : "rgba(255,255,255,0.06)",
-                        color: step === 0 ? "#3a3830" : "#e2d9c5",
+                        border: "1px solid var(--border)",
+                        background: step === 0 ? "transparent" : "var(--surface2)",
+                        color: step === 0 ? "var(--border)" : "var(--text)",
                         fontSize: 18,
                         cursor: step === 0 ? "not-allowed" : "pointer",
                         transition: "all 0.2s",
@@ -590,7 +384,6 @@ export default function App() {
                     }}
                 >‹</button>
 
-                {/* Dots */}
                 <div style={{ display: "flex", gap: 6 }}>
                     {steps.map((_,i) => (
                         <div
@@ -600,7 +393,7 @@ export default function App() {
                                 width: i === step ? 20 : 6,
                                 height: 6,
                                 borderRadius: 3,
-                                background: i === step ? "#f4a261" : "rgba(255,255,255,0.15)",
+                                background: i === step ? "#f4a261" : "var(--border)",
                                 cursor: "pointer",
                                 transition: "all 0.3s",
                             }}
@@ -614,9 +407,9 @@ export default function App() {
                     style={{
                         width: 44, height: 44,
                         borderRadius: "50%",
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        background: step === steps.length-1 ? "transparent" : "rgba(255,255,255,0.06)",
-                        color: step === steps.length-1 ? "#3a3830" : "#e2d9c5",
+                        border: "1px solid var(--border)",
+                        background: step === steps.length-1 ? "transparent" : "var(--surface2)",
+                        color: step === steps.length-1 ? "var(--border)" : "var(--text)",
                         fontSize: 18,
                         cursor: step === steps.length-1 ? "not-allowed" : "pointer",
                         transition: "all 0.2s",

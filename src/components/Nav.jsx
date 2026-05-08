@@ -13,6 +13,7 @@ const NAV_LINKS = [
   { to: '/locking', label: '2PL & Locking' },
   { to: '/domino-puzzle', label: 'Domino Puzzle' },
   { to: '/big-pairs-matrix', label: 'Big Pairs Matrix' },
+  { to: '/pizza-cuts', label: 'Pizza Cuts' },
 ]
 
 export default function Nav() {

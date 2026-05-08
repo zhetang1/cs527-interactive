@@ -115,6 +115,17 @@ export default function Home() {
               <span className="tag">Matrix</span>
             </div>
           </Link>
+
+          <a className="app-card" href="/pizza_cuts.html">
+            <div className="app-card-icon">🍕</div>
+            <div className="app-card-title">Efficient Pizza Cutting</div>
+            <div className="app-card-desc">Visualize how n straight cuts across a pizza can produce 1 + n(n+1)/2 pieces when every pair of cuts intersects inside.</div>
+            <div className="app-card-tags">
+              <span className="tag">Combinatorics</span>
+              <span className="tag">Proof</span>
+              <span className="tag">Counting</span>
+            </div>
+          </a>
         </div>
       </div>
     </>
