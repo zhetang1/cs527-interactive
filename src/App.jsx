@@ -13,6 +13,7 @@ import Locking from './pages/Locking.jsx'
 import DominoPuzzle from './pages/DominoPuzzle.jsx'
 import BigPairsMatrix from './pages/BigPairsMatrix.jsx'
 import PizzaCuts from './pages/PizzaCuts.jsx'
+import BorsukUlam from './pages/BorsukUlam.jsx'
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
         <Route path="/domino-puzzle" element={<DominoPuzzle />} />
         <Route path="/big-pairs-matrix" element={<BigPairsMatrix />} />
         <Route path="/pizza-cuts" element={<PizzaCuts />} />
+        <Route path="/borsuk-ulam" element={<BorsukUlam />} />
       </Routes>
     </ThemeProvider>
   )

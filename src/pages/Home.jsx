@@ -126,6 +126,18 @@ export default function Home() {
               <span className="tag">Counting</span>
             </div>
           </a>
+
+          <Link className="app-card" to="/borsuk-ulam">
+            <div className="app-card-icon">🌐</div>
+            <div className="app-card-title">Borsuk–Ulam Theorem</div>
+            <div className="app-card-desc">Two antipodal points on Earth always share the same temperature and pressure. An illustrated explainer of this deep theorem in algebraic topology.</div>
+            <div className="app-card-tags">
+              <span className="tag">Topology</span>
+              <span className="tag">Antipodal Points</span>
+              <span className="tag">IVT</span>
+              <span className="tag">Ham Sandwich</span>
+            </div>
+          </Link>
         </div>
       </div>
     </>
